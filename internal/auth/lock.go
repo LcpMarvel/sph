@@ -1,16 +1,19 @@
 package auth
 
 import (
+	"errors"
 	"os"
-	"syscall"
 
 	"sph/internal/apperr"
 )
 
+// errLockBusy marks "another mutation holds the lock right now".
+var errLockBusy = errors.New("credential lock is busy")
+
 // Lock is an advisory exclusive lock over <config>/.auth.lock held by login,
-// auth import and logout / auth clear for the whole mutation window
-// . It is released by unlock+close only; the lock file itself is
-// never deleted to implement the mutual exclusion.
+// auth import and logout / auth clear for the whole mutation window. It is
+// released by unlock+close only; the lock file itself is never deleted to
+// implement the mutual exclusion.
 type Lock struct {
 	f    *os.File
 	path string
@@ -38,9 +41,9 @@ func (s *Store) AcquireLock() (*Lock, error) {
 	if err != nil {
 		return nil, apperr.Wrap(err, apperr.IOError, apperr.StageCredentials, "无法打开锁文件")
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockHandle(f); err != nil {
 		f.Close()
-		if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
+		if errors.Is(err, errLockBusy) {
 			return nil, apperr.New(apperr.AuthBusy, apperr.StageCredentials,
 				"另一个登录/导入/注销操作正在进行，请稍后再试")
 		}
@@ -54,7 +57,7 @@ func (l *Lock) Release() error {
 	if l == nil || l.f == nil {
 		return nil
 	}
-	err1 := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	err1 := unlockHandle(l.f)
 	err2 := l.f.Close()
 	l.f = nil
 	if err1 != nil {

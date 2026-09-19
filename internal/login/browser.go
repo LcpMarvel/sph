@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -113,21 +112,4 @@ func (s *rodSession) Close() error {
 	err := s.browser.Close() // Browser.close CDP command terminates the instance
 	go s.launcher.Kill()     // belt and suspenders for our private instance
 	return err
-}
-
-// redirectStdoutToStderr points fd 1 at fd 2 and returns a restore func.
-// Best effort: when unavailable the launch simply proceeds unmuted.
-func redirectStdoutToStderr() (func(), error) {
-	saved, err := syscall.Dup(syscall.Stdout)
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Dup2(syscall.Stderr, syscall.Stdout); err != nil {
-		syscall.Close(saved)
-		return nil, err
-	}
-	return func() {
-		syscall.Dup2(saved, syscall.Stdout)
-		syscall.Close(saved)
-	}, nil
 }

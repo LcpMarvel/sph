@@ -1,5 +1,7 @@
 # sph — 微信视频号本地下载工具
 
+[![CI](https://github.com/LcpMarvel/sph-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/LcpMarvel/sph-downloader/actions/workflows/ci.yml)
+
 命令行工具：打开专用浏览器登录元宝官网一次，之后用本地凭证把视频号分享链接解析并下载成本地 MP4。单机自用，不部署服务器、不开代理、不装证书。
 
 ```
@@ -11,19 +13,31 @@ sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4
 - 平时的 `inspect` / `download` 不打开浏览器，适合脚本和 AI Agent 调用。
 - 只下载你本来有权访问和保存的内容。
 
-## 环境要求
+## 安装
 
-- macOS（Apple Silicon / Intel）；Linux 桌面可运行
-- Go ≥ 1.23（仅构建时需要）
-- 可选：`ffprobe`（如 `brew install ffmpeg`）——下载后做视频流验证；没有它只做 MP4 容器基础检查
+从 [Releases](https://github.com/LcpMarvel/sph-downloader/releases) 下载对应平台的压缩包，解压即用：
 
-运行时零外部依赖：不需要 Node、不需要预装浏览器。首次 `sph login` 会自动下载一个专用 Chromium（约 200MB，仅一次，之后复用）。
+| 文件 | 平台 |
+| --- | --- |
+| `sph-darwin-arm64.zip` | macOS Apple Silicon |
+| `sph-darwin-amd64.zip` | macOS Intel |
+| `sph-linux-amd64.tar.gz` | Linux x86_64 |
+| `sph-linux-arm64.tar.gz` | Linux ARM64 |
+| `sph-windows-amd64.zip` | Windows x64 |
+| `sph-windows-arm64.zip` | Windows ARM64 |
 
-## 首次安装
+或者从源码构建（Go ≥ 1.23）：
 
 ```bash
 go build -o bin/sph ./cmd/sph
 ```
+
+## 环境要求
+
+- macOS / Linux / Windows；`sph login` 需要桌面会话（要弹浏览器扫码）
+- 可选：`ffprobe`（如 `brew install ffmpeg`）——下载后做视频流验证；没有它只做 MP4 容器基础检查
+
+运行时零外部依赖：不需要 Node、不需要预装浏览器。首次 `sph login` 会自动下载一个专用 Chromium（约 200MB，仅一次，之后复用）。
 
 ## 使用
 
@@ -142,6 +156,12 @@ make build     # go build -o bin/sph ./cmd/sph
 make test      # go test ./...
 make check     # gofmt 检查 + go vet
 make race      # go test -race ./...
+```
+
+发布新版本：推送 `v*` 标签即可触发构建并发布 Release（六个平台产物 + SHA-256 校验和）：
+
+```bash
+git tag v1.0.1 && git push origin v1.0.1
 ```
 
 结构：`cmd/sph` 入口；`internal/cli` 参数与输出契约；`internal/auth` 凭证存取与锁；`internal/login` 登录编排（go-rod 驱动专用浏览器 + Cookie 观察状态机）；`internal/upstream` 两步解析链；`internal/netpolicy` 网络边界；`internal/download` 流式下载与原子提交；`internal/verify` 容器与 ffprobe 检查。
