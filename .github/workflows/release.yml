@@ -26,7 +26,8 @@ jobs:
             ext=""
             if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
             CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH \
-              go build -trimpath -ldflags "-s -w" \
+              go build -trimpath \
+              -ldflags "-s -w -X github.com/LcpMarvel/sph-downloader/internal/cli.Version=${GITHUB_REF_NAME#v}" \
               -o "dist/sph-${GOOS}-${GOARCH}${ext}" ./cmd/sph
           done
 

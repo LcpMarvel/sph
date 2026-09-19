@@ -21,8 +21,9 @@ import (
 	"github.com/LcpMarvel/sph-downloader/internal/verify"
 )
 
-// Version is the tool version reported by `sph version`.
-const Version = "1.0.0"
+// Version is the tool version reported by `sph version`. Release builds
+// inject the tag via -ldflags; source builds report "dev".
+var Version = "dev"
 
 // Default command timeouts.
 const (
