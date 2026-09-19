@@ -3,7 +3,7 @@ package cli
 import (
 	"strings"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // flagSpec describes one accepted flag for a command.

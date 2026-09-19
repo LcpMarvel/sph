@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"sph/internal/apperr"
-	"sph/internal/auth"
-	"sph/internal/netpolicy"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/auth"
+	"github.com/LcpMarvel/sph-downloader/internal/netpolicy"
 )
 
 // Sentinel secrets used across the isolation tests. If any of

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // box builds one ISO-BMFF box: 32-bit size, 4CC type, payload.

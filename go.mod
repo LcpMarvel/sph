@@ -1,4 +1,4 @@
-module sph
+module github.com/LcpMarvel/sph-downloader
 
 go 1.23
 

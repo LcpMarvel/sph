@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // MaxShareURLBytes is the maximum accepted length of a share link.

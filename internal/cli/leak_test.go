@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"sph/internal/auth"
-	"sph/internal/download"
-	"sph/internal/netpolicy"
-	"sph/internal/upstream"
-	"sph/internal/verify"
+	"github.com/LcpMarvel/sph-downloader/internal/auth"
+	"github.com/LcpMarvel/sph-downloader/internal/download"
+	"github.com/LcpMarvel/sph-downloader/internal/netpolicy"
+	"github.com/LcpMarvel/sph-downloader/internal/upstream"
+	"github.com/LcpMarvel/sph-downloader/internal/verify"
 )
 
 // : three fake servers (yuanbao, finder preview, media) carrying

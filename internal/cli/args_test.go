@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"sph/internal/apperr"
-	"sph/internal/auth"
-	"sph/internal/download"
-	"sph/internal/upstream"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/auth"
+	"github.com/LcpMarvel/sph-downloader/internal/download"
+	"github.com/LcpMarvel/sph-downloader/internal/upstream"
 )
 
 // failingClient makes every network attempt fail fast with a network error.

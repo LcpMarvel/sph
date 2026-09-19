@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // errLockBusy marks "another mutation holds the lock right now".

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 func newTestStore(t *testing.T) *Store {

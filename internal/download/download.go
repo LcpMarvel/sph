@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"sph/internal/apperr"
-	"sph/internal/media"
-	"sph/internal/netpolicy"
-	"sph/internal/verify"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/media"
+	"github.com/LcpMarvel/sph-downloader/internal/netpolicy"
+	"github.com/LcpMarvel/sph-downloader/internal/verify"
 )
 
 // HTTPClient is the injectable request interface.

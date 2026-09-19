@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"sph/internal/apperr"
-	"sph/internal/media"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/media"
 )
 
 const sentinelMediaQuery = "DO_NOT_LEAK_MEDIA_QUERY_789"

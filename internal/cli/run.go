@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"sph/internal/apperr"
-	"sph/internal/auth"
-	"sph/internal/download"
-	"sph/internal/login"
-	"sph/internal/netpolicy"
-	"sph/internal/upstream"
-	"sph/internal/verify"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/auth"
+	"github.com/LcpMarvel/sph-downloader/internal/download"
+	"github.com/LcpMarvel/sph-downloader/internal/login"
+	"github.com/LcpMarvel/sph-downloader/internal/netpolicy"
+	"github.com/LcpMarvel/sph-downloader/internal/upstream"
+	"github.com/LcpMarvel/sph-downloader/internal/verify"
 )
 
 // Version is the tool version reported by `sph version`.

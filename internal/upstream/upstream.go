@@ -24,10 +24,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"sph/internal/apperr"
-	"sph/internal/auth"
-	"sph/internal/media"
-	"sph/internal/netpolicy"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/auth"
+	"github.com/LcpMarvel/sph-downloader/internal/media"
+	"github.com/LcpMarvel/sph-downloader/internal/netpolicy"
 )
 
 // HTTPClient is the injectable request interface (tests use fakes).

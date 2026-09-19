@@ -26,11 +26,13 @@ sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4
 | `sph-windows-amd64.zip` | Windows x64 |
 | `sph-windows-arm64.zip` | Windows ARM64 |
 
-或者从源码构建（Go ≥ 1.23）：
+有 Go 环境（≥ 1.23）也可以一行安装：
 
 ```bash
-go build -o bin/sph ./cmd/sph
+go install github.com/LcpMarvel/sph-downloader/cmd/sph@latest
 ```
+
+或从源码构建：`go build -o bin/sph ./cmd/sph`
 
 ## 环境要求
 

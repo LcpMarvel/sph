@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"sph/internal/apperr"
-	"sph/internal/auth"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/auth"
 )
 
 // ---- fakes -----------------------------------------------------------------

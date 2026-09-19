@@ -27,7 +27,11 @@ unzip -o -j /tmp/sph.zip -d /usr/local/bin && chmod +x /usr/local/bin/sph-darwin
 
 校验（可选）：下载同目录的 `checksums.txt` 比对 SHA-256。
 
-也可以 `git clone` 后 `go build -o sph ./cmd/sph`（需要 Go ≥ 1.23）。
+机器有 Go（≥ 1.23）时最简单的一行安装（装入 `$GOPATH/bin`，二进制名 `sph`）：
+
+```bash
+go install github.com/LcpMarvel/sph-downloader/cmd/sph@latest
+```
 
 ## 2. 前提：登录凭证（唯一需要人类的步骤）
 

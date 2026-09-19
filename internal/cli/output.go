@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // envelope is the single JSON object printed in --json mode.

@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // Timeouts

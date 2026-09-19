@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // Size limits

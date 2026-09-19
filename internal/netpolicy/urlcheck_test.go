@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 func TestNormalizeShareURLAccepts(t *testing.T) {

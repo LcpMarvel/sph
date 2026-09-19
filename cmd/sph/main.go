@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"sph/internal/cli"
+	"github.com/LcpMarvel/sph-downloader/internal/cli"
 )
 
 func main() {

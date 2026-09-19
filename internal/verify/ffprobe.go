@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // FFProbeTimeout caps ffprobe inside the parent command context.

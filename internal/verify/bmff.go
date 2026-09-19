@@ -7,7 +7,7 @@ import (
 	"math"
 	"os"
 
-	"sph/internal/apperr"
+	"github.com/LcpMarvel/sph-downloader/internal/apperr"
 )
 
 // maxBoxes bounds the top-level box walk so a corrupt file cannot spin.
