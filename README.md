@@ -37,7 +37,7 @@ go build -o bin/sph ./cmd/sph
 - macOS / Linux / Windows；`sph login` 需要桌面会话（要弹浏览器扫码）
 - 可选：`ffprobe`（如 `brew install ffmpeg`）——下载后做视频流验证；没有它只做 MP4 容器基础检查
 
-运行时零外部依赖：不需要 Node、不需要预装浏览器。首次 `sph login` 会自动下载一个专用 Chromium（约 200MB，仅一次，之后复用）。
+运行时零外部依赖：不需要 Node、不需要预装浏览器。首次 `sph login` 会自动下载一个专用 Chromium（约 200MB，仅一次，之后复用）；下载源为多镜像自动竞速（Google / npmmirror / Playwright CDN 同时探测，国内环境会自动走 npmmirror 镜像，无需配置）。
 
 ## 使用
 

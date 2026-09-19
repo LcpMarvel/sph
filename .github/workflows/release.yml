@@ -34,9 +34,15 @@ jobs:
         run: |
           set -e
           cd dist
-          for f in sph-darwin-* sph-windows-*; do
+          for f in sph-darwin-*; do
             [ -e "$f" ] || continue
             zip -q "../release/${f}.zip" "$f"
+          done
+          # windows archives drop the .exe from the ARCHIVE name;
+          # the binary inside keeps it
+          for f in sph-windows-*; do
+            [ -e "$f" ] || continue
+            zip -q "../release/${f%.exe}.zip" "$f"
           done
           for f in sph-linux-*; do
             [ -e "$f" ] || continue
