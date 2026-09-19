@@ -1,0 +1,16 @@
+# 构建产物
+bin/
+*.test
+
+# 本地凭证与登录临时资料（防误提交，即使 SPH_CONFIG_DIR 被指到项目内）
+credentials.json
+.login-*/
+browser-profile/
+yuanbao-headers.json
+
+# 下载临时文件
+.sph-*.part
+*.mp4.part
+
+# 系统
+.DS_Store
