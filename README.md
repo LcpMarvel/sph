@@ -66,7 +66,9 @@ echo "https://weixin.qq.com/sph/xxxx" | ./bin/sph download --stdin
 
 同目录已有同名文件时默认报 `FILE_EXISTS`（退出码 9），不会覆盖；加 `--overwrite` 才替换。
 
-## 给脚本 / AI Agent 用（Codex、Claude Code 等）
+## 给脚本 / AI Agent 用（WorkBuddy、Codex、Claude Code 等）
+
+> Agent 集成的完整机器可读说明（安装命令、调用契约、安全边界）见 **[docs/agent-guide.md](docs/agent-guide.md)**——把这份文件喂给你的 Agent 即可。
 
 除 `login` 外所有命令都是**非交互**的，天然适合 Agent 与脚本调用：
 
