@@ -23,6 +23,8 @@ use crate::browser::page_state;
 pub enum RecoveryAction {
     /// 点击某 selector。
     Click(String),
+    /// 点击文案为给定文本的可见按钮（跨 shadow root 查找）。
+    ClickText(String),
     /// 向某 selector 输入文本（聚焦 + insertText）。
     Type { selector: String, text: String },
     /// 等待 N 毫秒后再重试（页面可能仍在加载）。
@@ -34,6 +36,50 @@ pub enum RecoveryAction {
 pub trait RecoveryBackend: Send + Sync {
     fn name(&self) -> &'static str;
     async fn recover(&self, snapshot: &page_state::PageSnapshot) -> Option<RecoveryAction>;
+}
+
+/// 规则后端（Jev 的确定性形态）：识别最常见的失败模式并给出动作。
+///
+/// 规则一：可见的阻塞对话框（我知道了/确定/切换/同意/关闭/取消）→ 点击。
+/// 规则二：页面元素很少且疑似仍在加载 → 等待后重试。
+///
+/// 这是探针阶段真实被拦过的模式；不依赖任何外部服务。
+pub struct RuleBackend {
+    pub max_wait: std::time::Duration,
+}
+
+impl Default for RuleBackend {
+    fn default() -> RuleBackend {
+        RuleBackend {
+            max_wait: std::time::Duration::from_secs(3),
+        }
+    }
+}
+
+const DIALOG_WORDS: &[&str] = &["我知道了", "确定", "好的", "同意", "关闭"];
+
+#[async_trait::async_trait]
+impl RecoveryBackend for RuleBackend {
+    fn name(&self) -> &'static str {
+        "rule"
+    }
+    async fn recover(&self, snapshot: &page_state::PageSnapshot) -> Option<RecoveryAction> {
+        // 1) 元素清单里找阻塞对话框按钮（文案精确匹配）
+        for el in &snapshot.elements {
+            if el.tag != "button" {
+                continue;
+            }
+            let text = el.text.trim();
+            if DIALOG_WORDS.contains(&text) {
+                return Some(RecoveryAction::ClickText(text.to_string()));
+            }
+        }
+        // 2) 页面几乎空（元素 < 3）→ 大概率仍在加载
+        if snapshot.elements.len() < 3 {
+            return Some(RecoveryAction::Wait(self.max_wait));
+        }
+        None
+    }
 }
 
 /// 默认后端：永不恢复。人工介入就是终态（PRD：响亮失败 + 保存现场）。
@@ -117,6 +163,39 @@ async fn apply_action(page: &Page, action: &RecoveryAction) -> Result<()> {
             }
             Ok(())
         }
+        RecoveryAction::ClickText(label) => {
+            let lbl = serde_json::to_string(label.trim()).unwrap_or_default();
+            let js = format!(
+                r#"(function(){{
+              const roots = [...document.querySelectorAll('wujie-app')].map(a => a.shadowRoot).filter(Boolean);
+              roots.push(document);
+              const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+              for (const sub of roots) {{
+                for (const b of sub.querySelectorAll('button')) {{
+                  if (vis(b) && (b.innerText||'').trim() === {lbl}) {{
+                    b.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
+                    return true;
+                  }}
+                }}
+              }}
+              return false;
+            }})()"#
+            );
+            let ok = page
+                .evaluate(js)
+                .await
+                .ok()
+                .and_then(|r| r.value().and_then(|v| v.as_bool()))
+                .unwrap_or(false);
+            if !ok {
+                return Err(AppError::new(
+                    Code::RecoveryFailed,
+                    Stage::Recovery,
+                    "恢复动作执行失败：按钮不存在",
+                ));
+            }
+            Ok(())
+        }
         RecoveryAction::Type { selector, text } => {
             let sel = selector.trim();
             let val = serde_json::to_string(text).unwrap_or_default();
@@ -185,11 +264,34 @@ where
         Err(e) => e,
     };
 
+    // 只有"页面状态类"失败值得恢复：平台明确拒绝/参数错误重试无意义
+    let recoverable = matches!(
+        original.code,
+        Code::Timeout | Code::SchemaChanged | Code::SessionExpired
+    );
+
     // 快照 + 现场保存（尽力而为，不覆盖原始错误）
     let snapshot = page_state::capture(page, stage, attempted_selector)
         .await
         .unwrap();
     let scene_dir = page_state::save_scene(page, &snapshot, &config_dir.join("crashes")).await;
+
+    if !recoverable {
+        append_trace(
+            config_dir,
+            &TraceEntry {
+                ts: now_rfc3339(),
+                command: "publish".to_string(),
+                stage: stage.as_str().to_string(),
+                attempted_selector: attempted_selector.to_string(),
+                backend: backend.name().to_string(),
+                action: None,
+                outcome: format!("not_recoverable:{}", original.code.as_str()),
+                scene_dir,
+            },
+        );
+        return Err(original);
+    }
 
     // 询问后端
     let action = backend.recover(&snapshot).await;
@@ -314,6 +416,72 @@ mod tests {
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("\"outcome\":\"recovered\""));
+    }
+
+    #[test]
+    fn rule_backend_clicks_dialog() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let backend = RuleBackend::default();
+        let mut snap = fake_snapshot(Stage::Navigate);
+        snap.elements = vec![crate::browser::page_state::ElementBrief {
+            index: 0,
+            tag: "button".into(),
+            text: "我知道了".into(),
+            attrs: ".weui-desktop-btn".into(),
+        }];
+        let action = rt.block_on(backend.recover(&snap));
+        assert_eq!(action, Some(RecoveryAction::ClickText("我知道了".into())));
+        assert_eq!(backend.name(), "rule");
+    }
+
+    #[test]
+    fn rule_backend_waits_on_empty_page() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let backend = RuleBackend::default();
+        let snap = fake_snapshot(Stage::Navigate);
+        let action = rt.block_on(backend.recover(&snap));
+        assert!(matches!(action, Some(RecoveryAction::Wait(_))));
+    }
+
+    #[test]
+    fn rule_backend_ignores_unrelated_buttons() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let backend = RuleBackend::default();
+        let mut snap = fake_snapshot(Stage::Submit);
+        snap.elements = vec![
+            crate::browser::page_state::ElementBrief {
+                index: 0,
+                tag: "button".into(),
+                text: "发表".into(),
+                attrs: ".primary".into(),
+            },
+            crate::browser::page_state::ElementBrief {
+                index: 1,
+                tag: "button".into(),
+                text: "保存草稿".into(),
+                attrs: String::new(),
+            },
+            crate::browser::page_state::ElementBrief {
+                index: 2,
+                tag: "button".into(),
+                text: "手机预览".into(),
+                attrs: String::new(),
+            },
+        ];
+        let action = rt.block_on(backend.recover(&snap));
+        assert!(
+            action.is_none(),
+            " unrelated buttons must not trigger: {action:?}"
+        );
     }
 
     #[test]

@@ -178,6 +178,19 @@ pub fn load_and_merge(config_dir: &Path, base: &'static Selectors) -> Result<Sel
     }
 }
 
+/// 校验补丁内容是否合法（import 前调用）：JSON 结构 + 字段名合法。
+pub fn validate_patch(raw: &str) -> Result<PublishPatch> {
+    let patch: PublishPatch = serde_json::from_str(raw).map_err(|_| {
+        AppError::new(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            "补丁不是有效的 JSON",
+        )
+    })?;
+    // 借 merge 的字段名校验（空合并即可触发未知字段检查）
+    merge(&crate::publish::page::DEFAULT_SELECTORS, &patch).map(|_| patch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

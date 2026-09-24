@@ -8,7 +8,9 @@ pub(crate) mod tests {
     use crate::browser::{self, SharedWriter};
     use crate::cli::run::parse_schedule_at;
     use crate::http::CancelToken;
-    use crate::publish::mod_impl::{default_options, run, validate, OpenedPage, Options};
+    use crate::publish::mod_impl::{
+        default_options, run, validate, OpenPageFn, OpenedPage, Options,
+    };
     use crate::publish::page::DEFAULT_SELECTORS;
     use crate::session::{accounts_root, AccountDir, DEFAULT_ACCOUNT};
     use std::path::{Path, PathBuf};
@@ -87,6 +89,22 @@ pub(crate) mod tests {
         let dst = dir.join("cover.jpg");
         std::fs::write(&dst, [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]).unwrap();
         dst
+    }
+
+    /// 真实 Chromium 页面工厂（fixture 测试共用）。
+    fn fixture_open_page() -> Option<OpenPageFn> {
+        let chrome = test_chrome()?;
+        Some(Arc::new(move |_profile, _headed| {
+            let chrome = chrome.clone();
+            Box::pin(async move {
+                let tmp = tempdir("openpage");
+                let (b, page) = browser::launch(&chrome, &tmp, false).await?;
+                Ok(OpenedPage {
+                    browser: Some(b),
+                    page,
+                })
+            })
+        }))
     }
 
     /// 构造 opts：注入 open_page（真实 Chromium 加载 fixture）与导航覆盖。
@@ -266,6 +284,61 @@ pub(crate) mod tests {
         assert!(validate(&opts).is_ok());
     }
 
+    #[tokio::test]
+    async fn e2e_batch_dry_run_multiple_videos() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("batch");
+        make_session(&config);
+        // 构造目录：两个 mp4 + 一个同名封面
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/tiny.mp4");
+        let dir = tempdir("videos");
+        for name in ["齿轮原理", "杠杆实验"] {
+            std::fs::copy(&src, dir.join(format!("{name}.mp4"))).unwrap();
+        }
+        std::fs::write(dir.join("齿轮原理.jpg"), b"\xff\xd8fake-jpeg").unwrap();
+
+        // 逐条走 publish::run（与 batch 命令同一入口逻辑）
+        let mut ok_count = 0;
+        for name in ["齿轮原理", "杠杆实验"] {
+            let video = dir.join(format!("{name}.mp4"));
+            let cover = ["jpg", "jpeg", "png"]
+                .iter()
+                .map(|ext| video.with_extension(ext))
+                .find(|p| p.is_file());
+            let opts = default_options(
+                video,
+                name.to_string(),
+                String::new(),
+                vec![],
+                cover,
+                true, // dry-run
+                false,
+                Duration::from_secs(60),
+                CancelToken::default(),
+                Arc::new(Mutex::new(Vec::new())) as SharedWriter,
+            );
+            // 手工构造必须覆盖导航 URL（否则打到真实平台）
+            let mut opts = opts;
+            opts.navigate_url = Some(fixture_url(FIXTURE_PUBLISH));
+            opts.open_page = fixture_open_page();
+            validate(&opts).unwrap();
+            let r = match run(&config, DEFAULT_ACCOUNT, opts).await {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("batch run failed for {name}: {e}");
+                    panic!("run failed: {e}");
+                }
+            };
+            assert!(r.dry_run && !r.submitted);
+            assert_eq!(r.title, name.to_string());
+            ok_count += 1;
+        }
+        assert_eq!(ok_count, 2);
+    }
+
     #[test]
     fn selectors_default_is_complete() {
         let s = &DEFAULT_SELECTORS;
@@ -319,7 +392,8 @@ pub(crate) mod tests {
         patched.home_ready = std::borrow::Cow::Borrowed(".never-exists");
         opts.selectors = Some(patched);
         let err = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap_err();
-        assert_eq!(err.code, Code::Timeout, "err: {err}");
+        // Timeout 走恢复路径（RuleBackend 等待后重试），仍失败 → 17
+        assert_eq!(err.code, Code::RecoveryFailed, "err: {err}");
 
         // 现场保存：crashes/<dir>/{snapshot.json,page.txt,screenshot.png}
         let crashes = std::fs::read_dir(config.join("crashes")).unwrap();
@@ -334,10 +408,13 @@ pub(crate) mod tests {
         assert!(snapshot.contains("\"stage\": \"navigate\""));
         assert!(snapshot.contains("never-exists"));
 
-        // 轨迹落盘 history.jsonl
+        // 轨迹落盘 history.jsonl：RuleBackend 被执行且重试失败
         let history = std::fs::read_to_string(config.join("history.jsonl")).unwrap();
-        assert!(history.contains("\"outcome\":\"no_recovery\""));
-        assert!(history.contains("\"backend\":\"null\""));
+        assert!(
+            history.contains("\"backend\":\"rule\""),
+            "history: {history}"
+        );
+        assert!(history.contains("retry_failed"), "history: {history}");
     }
 
     #[test]

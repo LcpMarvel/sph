@@ -13,7 +13,7 @@ use crate::apperr::{AppError, Code, Result, Stage};
 use crate::browser::{self, fetch, SharedWriter};
 use crate::publish::page::{PublishPage, Selectors, DEFAULT_SELECTORS};
 use crate::publish::patches;
-use crate::publish::recovery::{self, NullBackend, RecoveryBackend};
+use crate::publish::recovery::{self, RecoveryBackend, RuleBackend};
 use crate::session::{self, AccountDir};
 
 const NAVIGATE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -185,7 +185,7 @@ async fn run_inner(
     selectors: &Selectors,
     opts: &Options,
 ) -> Result<PublishResult> {
-    let backend: Arc<dyn RecoveryBackend> = Arc::new(NullBackend);
+    let backend: Arc<dyn RecoveryBackend> = Arc::new(RuleBackend::default());
     run_inner_with_backend(config_dir, account_name, page, selectors, opts, &backend).await
 }
 

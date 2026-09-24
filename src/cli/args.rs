@@ -38,7 +38,7 @@ const fn short_spec(name: &'static str, short: &'static str) -> FlagSpec {
 
 fn cmd_flag_specs(command: &str) -> Vec<FlagSpec> {
     match command {
-        "login" => vec![spec("timeout"), bool_spec("yuanbao")],
+        "login" => vec![spec("timeout"), bool_spec("yuanbao"), spec("account")],
         "publish" => vec![
             spec("title"),
             spec("description"),
@@ -53,6 +53,19 @@ fn cmd_flag_specs(command: &str) -> Vec<FlagSpec> {
         ],
         "logout" => vec![bool_spec("assistant")],
         "history" => vec![spec("limit"), bool_spec("json")],
+        "doctor" => vec![bool_spec("json")],
+        "patch export" => vec![spec("output")],
+        "patch import" => vec![],
+        "batch" => vec![
+            spec("tags"),
+            spec("description"),
+            spec("account"),
+            bool_spec("dry-run"),
+            bool_spec("headed"),
+            bool_spec("json"),
+            spec("timeout"),
+        ],
+
         "inspect" => vec![bool_spec("stdin"), bool_spec("json"), spec("timeout")],
         "download" => vec![
             bool_spec("stdin"),
@@ -97,6 +110,10 @@ pub fn known_commands() -> Vec<&'static str> {
         "publish",
         "accounts",
         "history",
+        "batch",
+        "doctor",
+        "patch export",
+        "patch import",
         "version",
         "help",
     ]
@@ -141,6 +158,28 @@ pub fn parse_args(argv: &[String]) -> Result<Command> {
     }
     let mut command = first.clone();
     let mut rest: &[String] = &argv[1..];
+    if command == "patch" {
+        if rest.is_empty() {
+            return Err(AppError::new(
+                Code::InvalidArgument,
+                Stage::Arguments,
+                "patch 需要子命令：export / import",
+            ));
+        }
+        match rest[0].as_str() {
+            "export" | "import" => {
+                command = format!("patch {}", rest[0]);
+                rest = &rest[1..];
+            }
+            other => {
+                return Err(AppError::fmt(
+                    Code::InvalidArgument,
+                    Stage::Arguments,
+                    format_args!("未知的 patch 子命令：{other}（可用：export / import）"),
+                ))
+            }
+        }
+    }
     if command == "auth" {
         if rest.is_empty() {
             return Err(AppError::new(

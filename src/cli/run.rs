@@ -147,6 +147,10 @@ async fn dispatch(
         "publish" => run_publish(cmd, stdout, stderr, deps).await,
         "accounts" => run_accounts(stdout, deps),
         "history" => run_history(cmd, stdout, deps),
+        "batch" => run_batch(cmd, stdout, stderr, deps).await,
+        "patch export" => run_patch_export(cmd, stdout, deps),
+        "patch import" => run_patch_import(cmd, stdout, deps),
+        "doctor" => run_doctor(cmd, stdout, deps),
         "inspect" => run_inspect(cmd, stdin, stdout, stderr, deps).await,
         "download" => run_download(cmd, stdin, stdout, stderr, deps).await,
         other => Err(AppError::fmt(
@@ -752,6 +756,323 @@ fn parse_tags(raw: Option<&str>) -> Vec<String> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// 批量发布：目录下每个 .mp4 顺序发布（标题 = 文件名，同名图片自动作封面）。
+async fn run_batch(
+    cmd: &Command,
+    stdout: &mut dyn Write,
+    stderr: &SharedWriter,
+    deps: &Deps,
+) -> Result<()> {
+    let json_mode = cmd.bool_flag("json");
+    if cmd.positionals.len() != 1 {
+        return Err(AppError::new(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            "batch 需要一个目录路径",
+        ));
+    }
+    let dir = PathBuf::from(&cmd.positionals[0]);
+    if !dir.is_dir() {
+        return Err(AppError::fmt(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            format_args!("目录不存在：{}", dir.display()),
+        ));
+    }
+    let mut videos: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map_err(|e| {
+            AppError::fmt(
+                Code::IOError,
+                Stage::Arguments,
+                format_args!("无法读取目录: {e}"),
+            )
+        })?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .map(|e| e.eq_ignore_ascii_case("mp4"))
+                .unwrap_or(false)
+        })
+        .collect();
+    videos.sort();
+    if videos.is_empty() {
+        return Err(AppError::fmt(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            format_args!("{} 下没有 .mp4 文件", dir.display()),
+        ));
+    }
+
+    let timeout = parse_timeout_flag(cmd, Duration::from_secs(10 * 60))?;
+    let tags = parse_tags(cmd.flag("tags"));
+    let description = cmd.flag("description").unwrap_or("").to_string();
+    let account = cmd
+        .flag("account")
+        .unwrap_or(session::DEFAULT_ACCOUNT)
+        .to_string();
+    let config_dir = (deps.config_dir)();
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    let mut first_failure: Option<i32> = None;
+    for video in &videos {
+        let stem = video
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "video".into());
+        // 同名图片自动作封面
+        let cover = ["jpg", "jpeg", "png"]
+            .iter()
+            .map(|ext| video.with_extension(ext))
+            .find(|p| p.is_file());
+        let opts = publish::default_options(
+            video.clone(),
+            stem.clone(),
+            description.clone(),
+            tags.clone(),
+            cover.clone(),
+            cmd.bool_flag("dry-run"),
+            cmd.bool_flag("headed"),
+            timeout,
+            deps.cancel.clone(),
+            stderr.clone(),
+        );
+        if let Err(e) = publish::validate(&opts) {
+            let code = e.code.exit_code();
+            if first_failure.is_none() {
+                first_failure = Some(code);
+            }
+            results.push(serde_json::json!({
+                "video": video.to_string_lossy(),
+                "ok": false,
+                "error": {"code": e.code.as_str(), "message": e.message},
+            }));
+            continue;
+        }
+        match publish::run(&config_dir, &account, opts).await {
+            Ok(r) => results.push(serde_json::json!({
+                "video": r.video,
+                "ok": true,
+                "submitted": r.submitted,
+                "dry_run": r.dry_run,
+            })),
+            Err(e) => {
+                if first_failure.is_none() {
+                    first_failure = Some(e.code.exit_code());
+                }
+                results.push(serde_json::json!({
+                    "video": video.to_string_lossy(),
+                    "ok": false,
+                    "error": {"code": e.code.as_str(), "stage": e.stage.as_str(), "message": e.message},
+                }));
+            }
+        }
+    }
+
+    let ok_count = results
+        .iter()
+        .filter(|r| r.get("ok") == Some(&serde_json::Value::Bool(true)))
+        .count();
+    if json_mode {
+        let env = output::success_envelope(
+            "batch",
+            serde_json::json!({"total": results.len(), "ok": ok_count, "results": results}),
+        );
+        output::write_json(stdout, &env)?;
+    } else {
+        for r in &results {
+            let mark = if r.get("ok") == Some(&serde_json::Value::Bool(true)) {
+                "✓"
+            } else {
+                "✗"
+            };
+            let name = r.get("video").and_then(|v| v.as_str()).unwrap_or("");
+            let detail = if r.get("ok") == Some(&serde_json::Value::Bool(true)) {
+                if r.get("dry_run") == Some(&serde_json::Value::Bool(true)) {
+                    "dry-run 完成".to_string()
+                } else if r.get("submitted") == Some(&serde_json::Value::Bool(true)) {
+                    "已提交".to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                r.pointer("/error/message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("失败")
+                    .to_string()
+            };
+            writeln!(stdout, "{} {} {}", mark, name, detail)
+                .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+        }
+        writeln!(stdout, "批量完成：{}/{} 成功", ok_count, results.len())
+            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    }
+    Ok(())
+}
+
+/// 导出补丁文件到指定路径（默认 stdout）。
+fn run_patch_export(cmd: &Command, stdout: &mut dyn Write, deps: &Deps) -> Result<()> {
+    let path = crate::publish::patches::patch_path(&(deps.config_dir)());
+    let raw = std::fs::read_to_string(&path).map_err(|_| {
+        AppError::new(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            "没有可导出的补丁文件（~/.sph/patches/publish.json 不存在）",
+        )
+    })?;
+    if let Some(out) = cmd.flag("output") {
+        std::fs::write(out, raw.as_bytes()).map_err(|e| {
+            AppError::fmt(
+                Code::IOError,
+                Stage::Arguments,
+                format_args!("写出补丁失败: {e}"),
+            )
+        })?;
+        writeln!(stdout, "补丁已导出到 {out}")
+            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    } else {
+        write!(stdout, "{raw}")
+            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    }
+    Ok(())
+}
+
+/// 从文件导入补丁（校验字段名后写入）。
+fn run_patch_import(cmd: &Command, stdout: &mut dyn Write, deps: &Deps) -> Result<()> {
+    if cmd.positionals.len() != 1 {
+        return Err(AppError::new(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            "patch import 需要一个补丁文件路径",
+        ));
+    }
+    let raw = std::fs::read_to_string(&cmd.positionals[0]).map_err(|e| {
+        AppError::fmt(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            format_args!("无法读取补丁文件: {e}"),
+        )
+    })?;
+    crate::publish::patches::validate_patch(&raw)?;
+    let target = crate::publish::patches::patch_path(&(deps.config_dir)());
+    std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| {
+        AppError::fmt(
+            Code::IOError,
+            Stage::Arguments,
+            format_args!("无法创建补丁目录: {e}"),
+        )
+    })?;
+    std::fs::write(&target, raw.as_bytes()).map_err(|e| {
+        AppError::fmt(
+            Code::IOError,
+            Stage::Arguments,
+            format_args!("写入补丁失败: {e}"),
+        )
+    })?;
+    writeln!(stdout, "补丁已导入（{}）", target.display())
+        .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    Ok(())
+}
+
+/// 健康检查：账号会话 / 下载凭证 / 补丁 / 浏览器可用性。
+fn run_doctor(cmd: &Command, stdout: &mut dyn Write, deps: &Deps) -> Result<()> {
+    let json_mode = cmd.bool_flag("json");
+    let config_dir = (deps.config_dir)();
+    let mut checks: Vec<serde_json::Value> = Vec::new();
+    let mut any_fail = false;
+
+    // 助手会话
+    let accounts = session::list_accounts(&config_dir);
+    if accounts.is_empty() {
+        checks.push(serde_json::json!({"name": "assistant_session", "status": "fail", "detail": "无账号，执行 sph login", "fix": "sph login"}));
+        any_fail = true;
+    } else {
+        for name in &accounts {
+            let dir = session::AccountDir::new(&session::accounts_root(&config_dir), name);
+            let ok = dir.profile_exists();
+            checks.push(serde_json::json!({
+                "name": format!("assistant_session:{name}"),
+                "status": if ok { "ok" } else { "fail" },
+                "detail": if ok { "profile 就绪" } else { "profile 缺失" },
+                "fix": if ok { serde_json::Value::Null } else { serde_json::Value::String(format!("sph login --account {name}")) },
+            }));
+            any_fail |= !ok;
+        }
+    }
+    // 下载凭证
+    let store = auth::Store::new(&config_dir)?;
+    if !store.exists() {
+        checks.push(serde_json::json!({"name": "yuanbao_credentials", "status": "warn", "detail": "未配置（仅下载需要）", "fix": "sph login --yuanbao"}));
+    } else {
+        match store.load() {
+            Ok(_) => checks.push(serde_json::json!({"name": "yuanbao_credentials", "status": "ok", "detail": "已保存且通过校验", "fix": serde_json::Value::Null})),
+            Err(_) => {
+                checks.push(serde_json::json!({"name": "yuanbao_credentials", "status": "fail", "detail": "文件存在但未通过校验", "fix": "sph login --yuanbao 重新登录"}));
+                any_fail = true;
+            }
+        }
+    }
+    // 补丁
+    match crate::publish::patches::load_patch(&config_dir) {
+        Ok(None) => checks.push(serde_json::json!({"name": "selector_patch", "status": "ok", "detail": "无补丁（使用内置 selector）", "fix": serde_json::Value::Null})),
+        Ok(Some(_)) => {
+            // 再验证一次合并（未知字段检测）
+            match crate::publish::patches::load_and_merge(&config_dir, &crate::publish::page::DEFAULT_SELECTORS) {
+                Ok(_) => checks.push(serde_json::json!({"name": "selector_patch", "status": "ok", "detail": "补丁有效", "fix": serde_json::Value::Null})),
+                Err(e) => {
+                    checks.push(serde_json::json!({"name": "selector_patch", "status": "fail", "detail": e.message, "fix": "修正或删除 ~/.sph/patches/publish.json"}));
+                    any_fail = true;
+                }
+            }
+        }
+        Err(e) => {
+            checks.push(serde_json::json!({"name": "selector_patch", "status": "fail", "detail": e.message, "fix": "修正或删除 ~/.sph/patches/publish.json"}));
+            any_fail = true;
+        }
+    }
+    // 浏览器
+    let chrome = crate::browser::fetch::system_chrome()
+        .map(|p| p.to_string_lossy().into_owned())
+        .or_else(|| {
+            let cache = config_dir.join("browser");
+            cache
+                .read_dir()
+                .ok()
+                .and_then(|mut d| d.next())
+                .map(|_| "CfT 缓存可用".into())
+        });
+    match chrome {
+        Some(detail) => checks.push(serde_json::json!({"name": "browser", "status": "ok", "detail": detail, "fix": serde_json::Value::Null})),
+        None => checks.push(serde_json::json!({"name": "browser", "status": "warn", "detail": "系统浏览器与缓存均不可用（首次运行会自动下载）", "fix": serde_json::Value::Null})),
+    }
+
+    if json_mode {
+        let env = output::success_envelope("doctor", serde_json::json!({"checks": checks}));
+        output::write_json(stdout, &env)?;
+    } else {
+        for c in &checks {
+            let status = c.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            let mark = match status {
+                "ok" => "✓",
+                "warn" => "△",
+                _ => "✗",
+            };
+            let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let detail = c.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+            writeln!(stdout, "{} {}: {}", mark, name, detail)
+                .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+        }
+    }
+    if any_fail {
+        return Err(AppError::new(
+            Code::InternalError,
+            Stage::Arguments,
+            "doctor 发现失败项（见上方 ✗）",
+        ));
+    }
+    Ok(())
 }
 
 /// 读取恢复轨迹 history.jsonl，输出最近 N 条（默认 20）。
@@ -1713,5 +2034,123 @@ mod m4_cli_tests {
             String::from_utf8_lossy(&stdout).into_owned(),
             String::from_utf8_lossy(&err_out).into_owned(),
         )
+    }
+}
+
+#[cfg(test)]
+mod m4b_tests {
+    use super::*;
+
+    fn deps_with(cfg: PathBuf) -> Deps {
+        Deps {
+            config_dir: Box::new(move || cfg.clone()),
+            interactive: Box::new(|| false),
+            upstream_factory: Box::new(|| {
+                Client::new(Arc::new(crate::http::ReqwestTransport::api()))
+            }),
+            media_factory: Box::new(|| Arc::new(crate::http::ReqwestTransport::media())),
+            cancel: CancelToken::default(),
+        }
+    }
+
+    async fn cli(deps: &Deps, argv: &[&str]) -> (i32, String) {
+        let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+        let stdin: Arc<Mutex<dyn Read + Send>> =
+            Arc::new(Mutex::new(std::io::Cursor::new(Vec::new())));
+        let mut stdout = Vec::new();
+        let stderr: SharedWriter = Arc::new(Mutex::new(Vec::new()));
+        let code = run(&argv, stdin, &mut stdout, stderr, deps).await;
+        (code, String::from_utf8_lossy(&stdout).into_owned())
+    }
+
+    #[tokio::test]
+    async fn patch_export_import_roundtrip() {
+        let base = std::env::temp_dir().join(format!("sph-patch-rt-{:016x}", {
+            use rand::Rng;
+            rand::thread_rng().gen::<u64>()
+        }));
+        let cfg = base.join("cfg");
+        std::fs::create_dir_all(cfg.join("patches")).unwrap();
+        std::fs::write(
+            cfg.join("patches").join("publish.json"),
+            br#"{"selectors": {"title_input": "input#x"}}"#,
+        )
+        .unwrap();
+        let deps = deps_with(cfg.clone());
+        // export 到文件
+        let out_path = base.join("exported.json");
+        let (code, out) = cli(
+            &deps,
+            &["patch", "export", "--output", out_path.to_str().unwrap()],
+        )
+        .await;
+        assert_eq!(code, 0, "export: code={code} out={out}");
+        // import 回来（先删原文件）
+        std::fs::remove_file(cfg.join("patches").join("publish.json")).unwrap();
+        let (code, out) = cli(&deps, &["patch", "import", out_path.to_str().unwrap()]).await;
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains("已导入"));
+        let imported = std::fs::read_to_string(cfg.join("patches").join("publish.json")).unwrap();
+        assert!(imported.contains("input#x"));
+    }
+
+    #[tokio::test]
+    async fn patch_import_rejects_unknown_field() {
+        let base = std::env::temp_dir().join(format!("sph-patch-bad-{:016x}", {
+            use rand::Rng;
+            rand::thread_rng().gen::<u64>()
+        }));
+        std::fs::create_dir_all(&base).unwrap();
+        let bad = base.join("bad.json");
+        std::fs::write(&bad, br#"{"selectors": {"nope": "x"}}"#).unwrap();
+        let deps = deps_with(base.join("cfg"));
+        let (code, _) = cli(&deps, &["patch", "import", bad.to_str().unwrap()]).await;
+        assert_eq!(code, 2);
+    }
+
+    #[tokio::test]
+    async fn doctor_reports_fail_on_empty_and_ok_on_ready() {
+        // 空环境：无账号 → fail
+        let base = std::env::temp_dir().join(format!("sph-doc-{:016x}", {
+            use rand::Rng;
+            rand::thread_rng().gen::<u64>()
+        }));
+        let deps = deps_with(base.join("cfg"));
+        let (code, out) = cli(&deps, &["doctor"]).await;
+        assert_ne!(code, 0, "doctor should fail on empty env: {out}");
+        assert!(out.contains("assistant_session"), "{out}");
+
+        // 就绪环境：账号 profile + 有效补丁 + 凭证
+        let cfg = base.join("cfg");
+        crate::session::AccountDir::new(
+            &crate::session::accounts_root(&cfg),
+            crate::session::DEFAULT_ACCOUNT,
+        )
+        .profile_dir();
+        std::fs::create_dir_all(
+            crate::session::AccountDir::new(
+                &crate::session::accounts_root(&cfg),
+                crate::session::DEFAULT_ACCOUNT,
+            )
+            .profile_dir(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(cfg.join("patches")).unwrap();
+        std::fs::write(cfg.join("patches").join("publish.json"), br#"{}"#).unwrap();
+        let store = auth::Store::new(&cfg).unwrap();
+        let lock = store.acquire_lock().unwrap();
+        store
+            .save(&auth::Credentials {
+                saved_at: time::OffsetDateTime::now_utc(),
+                source: auth::Source::ManualImport,
+                verified_at: None,
+                cookie: "a=b".into(),
+                yuanbao_headers: Default::default(),
+            })
+            .unwrap();
+        lock.release().unwrap();
+        let (code, out) = cli(&deps, &["doctor"]).await;
+        assert_eq!(code, 0, "doctor should pass on ready env: {out}");
+        assert!(out.contains("selector_patch"), "{out}");
     }
 }

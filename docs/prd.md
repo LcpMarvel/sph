@@ -278,25 +278,33 @@ v1 退出码表（0–14, 130）全部保留。新增：
 - **实测**：110/110 测试（含失败现场保存 e2e：超时 → crashes 落盘 + 轨迹入 history.jsonl）。
 - 待办：Jev/LLM 后端实现（接口已就绪）；补丁 export/import/report；`sph doctor`。
 
-### M4 — 规模化：`--at` / `batch` / 多账号（第一刀 ✅ 2026-09-24）
+### M4 — 规模化：`--at` / `batch` / 多账号 ✅（2026-09-24）
 
 - **`--at "YYYY-MM-DD HH:MM"` 定时发表**：radio"定时" → 日期 picker（读头部月份翻页、点目标日）→ 时间输入（focus+select+insertText+Tab blur，React 18 受控组件的键盘级路径）→ 回填校验；交互序列校准自 frankwei2019/auto-weixin-video 的踩坑记录；非未来时间/坏格式报 18 SCHEDULE_INVALID；
 - **`sph history [--limit N] [--json]`**：读取恢复轨迹 history.jsonl（M3 落盘），最近 N 条 / JSON 信封；
-- `publish --account` 多账号参数 M2 已就位；`login --account` 与 `batch` 留待下一刀；
-- **实测**：115/115 测试（定时 fixture e2e：picker 仿真全流程；--at 解析矩阵；history 命令空/有数据/JSON 模式）。
-- 待办：`login --account`、`sph batch <dir>`（顺序批量）、真实定时验收（会真实创建定时任务，由用户日常使用验证）。
+- **M4 完成（2026-09-24 第二刀）**：
+  - `login --account NAME`：多账号登录就位；
+  - `sph batch <dir>`：目录内 .mp4 顺序发布（标题=文件名，同名 .jpg/.jpeg/.png 自动作封面；逐条结果汇总，退出码=首个失败码）；
+  - **`sph doctor [--json]`**：健康检查（账号会话/下载凭证/补丁有效性/浏览器可用性），fail 退出 1；
+  - **`sph patch export/import`**：补丁打包与导入（import 校验字段名，坏补丁响亮拒绝）；
+- **实测**：122/122 测试（batch dry-run 双视频 e2e、patch 导出导入 roundtrip、坏补丁拒绝、doctor 空/就绪两种环境）。
 
-### M4 — 规模化（后续）
+### M3 后半 ✅（同日）
+
+- **RuleBackend**（Jev 的确定性形态）成为 publish 默认恢复后端：阻塞对话框（我知道了/确定/切换/同意/关闭）→ 点击；页面近乎空白 → 等待重试——探针阶段真实被拦的模式，零外部依赖；
+- **恢复语义收窄**：只有页面状态类失败（Timeout/SchemaChanged/SessionExpired）走恢复重试；平台明确拒绝（PUBLISH_REJECTED 等）直接返回原始错误（重试无意义）；
+- LLM 后端接口已就绪但不做远程 LLM（零密钥零依赖立场；本地模型后端留待真有需求时经同一 trait 接入）。
+- 待办（低优先）：真实定时验收（日常使用验证）、Jev 本地模型后端、补丁社区分发（有真实共享需求再做）。
 
 - 定时发表（优先平台原生定时入口，不可用时本地调度兜底）；
 - `sph batch <dir>`；多账号登记与 `--account` 切换；
 - `sph status` / `sph history` 完整化。
 
-### M5 — Agent 面：`sph mcp`
+### M5 — ~~`sph mcp`~~ 已砍（2026-09-24 用户决策）
 
-- 以 MCP server 暴露：`publish_video() / download_video() / list_videos() / get_stats()`；
-- `list / stats / comments / reply` 逐步开放；
-- Claude Code / Codex skill 文档。
+不做 MCP server。理由：`--json` 单对象输出 + 稳定退出码 + 完整错误契约已经是 Agent 集成的最佳形态
+（v1 的 agent-guide 即此结论），MCP 只是等价包装，不值得维护成本。
+Agent 直接 `sph publish ... --json` 即可。若未来有强烈需求再议。
 
 ## 10. 风险与开放问题
 
