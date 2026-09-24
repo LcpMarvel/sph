@@ -472,4 +472,44 @@ pub(crate) mod tests {
             "scheduled_at must be reported"
         );
     }
+
+    #[tokio::test]
+    async fn e2e_publish_with_extended_attributes() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("attrs");
+        make_session(&config);
+        let work = tempdir("workattrs");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.collection = Some("机械系列".to_string());
+        opts.link = Some("公众号文章".to_string());
+        opts.activity = Some("科学实验挑战赛".to_string());
+        opts.ai_mark = true;
+        let result = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap();
+        assert!(result.dry_run);
+        // 校验 fixture 回填：合集/活动 placeholder 已变成选项文案；标注已勾选
+        // （通过 history 无失败轨迹间接确认全部步骤通过）
+        let history = std::fs::read_to_string(config.join("history.jsonl")).unwrap_or_default();
+        assert!(!history.contains("retry_failed"), "history: {history}");
+    }
+
+    #[tokio::test]
+    async fn e2e_collection_not_found_is_loud_error() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("attrfail");
+        make_session(&config);
+        let work = tempdir("workattrfail");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.collection = Some("不存在的合集".to_string());
+        let err = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap_err();
+        assert_eq!(err.code, Code::SchemaChanged, "err: {err}");
+        assert!(err.message.contains("不存在的合集"), "err: {err}");
+    }
 }

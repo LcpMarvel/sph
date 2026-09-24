@@ -50,6 +50,8 @@ sph logout [--assistant]                # 清下载凭证 / 助手会话
 sph publish VIDEO.mp4 --title "标题" [选项]
     --description "描述"  --tags "机械,科普"  --cover cover.jpg
     --at "YYYY-MM-DD HH:MM"               # 定时发表（本地时区）
+    --collection "名称"   --link "名称"   --activity "名称"
+    --ai-mark                             # 视频标注：含 AI 生成内容
     --account NAME                        # 多账号
     --dry-run                             # 走完除提交外全部步骤
     --headed                              # 可见浏览器（调试）

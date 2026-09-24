@@ -73,6 +73,11 @@ const DISTILL_JS: &str = r#"
 })()
 "#;
 
+/// 供调试：DISTILL_JS 原文。
+pub fn distill_js_for_debug() -> &'static str {
+    DISTILL_JS
+}
+
 /// 采集当前页面状态。
 pub async fn capture(page: &Page, stage: Stage, attempted_selector: &str) -> Result<PageSnapshot> {
     let raw = page.evaluate(DISTILL_JS).await.map_err(|e| {
@@ -83,7 +88,11 @@ pub async fn capture(page: &Page, stage: Stage, attempted_selector: &str) -> Res
         )
     })?;
     let value = raw.value().cloned().unwrap_or_default();
-    let parsed: serde_json::Value = serde_json::from_value(value).unwrap_or_default();
+    // DISTILL_JS 返回 JSON.stringify 的字符串，需二次解析
+    let parsed: serde_json::Value = match &value {
+        serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or_default(),
+        other => other.clone(),
+    };
     let elements: Vec<ElementBrief> = parsed
         .get("elements")
         .and_then(|e| serde_json::from_value(e.clone()).ok())

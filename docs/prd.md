@@ -296,6 +296,15 @@ v1 退出码表（0–14, 130）全部保留。新增：
 - LLM 后端接口已就绪但不做远程 LLM（零密钥零依赖立场；本地模型后端留待真有需求时经同一 trait 接入）。
 - 待办（低优先）：真实定时验收（日常使用验证）、Jev 本地模型后端、补丁社区分发（有真实共享需求再做）。
 
+### M6 — 扩展属性 ✅（2026-09-24）
+
+- `--collection` / `--link` / `--activity`（通用下拉选择：label 定位 → 展开弹层 → 文案匹配点选 → 不存在则响亮报错）；
+- `--ai-mark` 视频标注"含 AI 生成内容"（div 模拟 checkbox：完整 mouse 事件序列 + click，校验 is-selected；校准自 awv 踩坑记录）；
+- 修复 page_state 解析 bug（DISTILL_JS 返回 JSON 字符串未二次解析——现场 URL/元素自 M3 起一直为空，修复后 RuleBackend 首次拿到真实元素）；
+- 修复未登录检测（URL 级 login/passport 判定，会话过期 5 秒内报 15 不再等满超时）；
+- 项目改名 LcpMarvel/sph；README/agent-guide 按 v2 重写；CI 修 Ubuntu chromium snap 空壳问题；
+- 124/124 测试。
+
 - 定时发表（优先平台原生定时入口，不可用时本地调度兜底）；
 - `sph batch <dir>`；多账号登记与 `--account` 切换；
 - `sph status` / `sph history` 完整化。

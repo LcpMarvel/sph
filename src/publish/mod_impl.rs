@@ -41,6 +41,14 @@ pub struct Options {
     pub step_timeout: Duration,
     /// 定时发表时间（本地时区；None = 立即发表）。
     pub schedule_at: Option<time::OffsetDateTime>,
+    /// 添加到合集（按名称选择）。
+    pub collection: Option<String>,
+    /// 链接（按名称选择）。
+    pub link: Option<String>,
+    /// 参与活动（按名称搜索选择）。
+    pub activity: Option<String>,
+    /// 视频标注：勾选"含 AI 生成内容"。
+    pub ai_mark: bool,
 }
 
 /// 页面工厂类型别名（测试注入假实现）。
@@ -266,6 +274,57 @@ pub(crate) async fn run_inner_with_backend(
         );
     }
 
+    // 3.5) 扩展属性：合集 / 链接 / 活动 / 视频标注
+    if let Some(collection) = &opts.collection {
+        werr(
+            stderr,
+            format_args!("步骤 3.5/5：添加到合集（{collection}）…\n"),
+        );
+        step!(
+            Stage::Metadata,
+            selectors.collection_label.as_ref(),
+            flow.select_dropdown_option(
+                selectors.collection_label.as_ref(),
+                collection,
+                Stage::Metadata
+            )
+        );
+    }
+    if let Some(link) = &opts.link {
+        werr(stderr, format_args!("步骤 3.5/5：设置链接（{link}）…\n"));
+        step!(
+            Stage::Metadata,
+            selectors.link_label.as_ref(),
+            flow.select_dropdown_option(selectors.link_label.as_ref(), link, Stage::Metadata)
+        );
+    }
+    if let Some(activity) = &opts.activity {
+        werr(
+            stderr,
+            format_args!("步骤 3.5/5：参与活动（{activity}）…\n"),
+        );
+        step!(
+            Stage::Metadata,
+            selectors.activity_label.as_ref(),
+            flow.select_dropdown_option(
+                selectors.activity_label.as_ref(),
+                activity,
+                Stage::Metadata
+            )
+        );
+    }
+    if opts.ai_mark {
+        werr(
+            stderr,
+            format_args!("步骤 3.5/5：勾选视频标注（含 AI 生成内容）…\n"),
+        );
+        step!(
+            Stage::Declaration,
+            selectors.mark_label.as_ref(),
+            flow.mark_ai_content()
+        );
+    }
+
     // 4) 声明（默认保守不勾原创）
     werr(stderr, format_args!("步骤 4/5：核对声明选项…\n"));
     step!(
@@ -365,5 +424,9 @@ pub fn default_options(
         navigate_url: None,
         step_timeout: Duration::from_secs(60),
         schedule_at: None,
+        collection: None,
+        link: None,
+        activity: None,
+        ai_mark: false,
     }
 }

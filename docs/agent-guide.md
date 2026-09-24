@@ -64,6 +64,9 @@ sph publish ./v.mp4 --title "标题" --description "描述" --tags "机械,科�
 # 定时发表（本地时区，必须未来时间）
 sph publish ./v.mp4 --title "标题" --at "2026-09-25 20:00" --json
 
+# 扩展属性：合集 / 链接 / 活动 / AI 标注
+sph publish ./v.mp4 --title "标题" --collection "机械系列" --ai-mark --json
+
 # 批量上架一个目录（标题=文件名，同名图片自动封面；逐条独立结果）
 sph batch ./videos/ --json
 

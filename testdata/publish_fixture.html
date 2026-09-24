@@ -24,6 +24,27 @@
   <input type="file" id="cover-file" accept="image/jpeg">
   <div class="cover-preview-wrap" hidden>封面预览</div>
   <input type="checkbox" class="ant-checkbox-input" id="original-checkbox">
+  <div class="form-item">
+    <div class="label">添加到合集</div>
+    <div class="select-placeholder">选择合集</div>
+    <div class="options" hidden><div class="opt">机械系列</div><div class="opt">儿童科普</div></div>
+  </div>
+  <div class="form-item">
+    <div class="label">链接</div>
+    <div class="select-placeholder">选择链接</div>
+    <div class="options" hidden><div class="opt">公众号文章</div></div>
+  </div>
+  <div class="form-item">
+    <div class="label">活动</div>
+    <div class="select-placeholder">不参与活动</div>
+    <div class="options" hidden><div class="opt">科学实验挑战赛</div></div>
+  </div>
+  <div class="form-item">
+    <div class="select-placeholder mark-placeholder">视频标注</div>
+    <div class="mark-options" hidden>
+      <div class="mark-tag-option">含AI生成内容</div>
+    </div>
+  </div>
   <div class="schedule-row">
     <span class="weui-desktop-form__check-content">不定时</span>
     <span class="weui-desktop-form__check-content">定时</span>
@@ -62,6 +83,31 @@ document.getElementById('submit-btn').addEventListener('click', function () {
   }
 });
 // 输入痕迹（供断言）
+// 下拉选择：placeholder 点击展开 options，选项点击后回填
+document.querySelectorAll('.select-placeholder').forEach(function (ph) {
+  if ((ph.innerText || '').trim() === '视频标注') return;
+  ph.addEventListener('click', function () {
+    var item = ph.closest('.form-item');
+    if (item) {
+      var opts = item.querySelector('.options');
+      if (opts) opts.hidden = false;
+    }
+  });
+});
+document.querySelectorAll('.options .opt').forEach(function (opt) {
+  opt.addEventListener('click', function () {
+    var item = opt.closest('.form-item');
+    item.querySelector('.select-placeholder').innerText = opt.innerText;
+    item.querySelector('.options').hidden = true;
+  });
+});
+// 视频标注：div 模拟 checkbox，完整 mouse 事件后加 is-selected
+document.querySelector('.mark-placeholder').addEventListener('click', function () {
+  document.querySelector('.mark-options').hidden = false;
+});
+document.querySelector('.mark-tag-option').addEventListener('click', function () {
+  this.classList.add('is-selected');
+});
 // 定时：点"定时"radio 显示面板；点日期 input 弹 picker；点日期回填
 document.querySelectorAll('.weui-desktop-form__check-content').forEach(function (sp) {
   if ((sp.innerText || '').trim() === '定时') {

@@ -62,6 +62,18 @@ pub struct Selectors {
     pub schedule_picker_day: Cow<'static, str>,
     /// 定时时间输入框（placeholder 线索）。
     pub schedule_time_input: Cow<'static, str>,
+    /// "添加到合集"文案。
+    pub collection_label: Cow<'static, str>,
+    /// "链接"文案。
+    pub link_label: Cow<'static, str>,
+    /// "活动"文案。
+    pub activity_label: Cow<'static, str>,
+    /// "视频标注"文案。
+    pub mark_label: Cow<'static, str>,
+    /// 视频标注选项关键词（"含AI"）。
+    pub mark_ai_keyword: Cow<'static, str>,
+    /// 视频标注选项元素。
+    pub mark_option: Cow<'static, str>,
     /// 发表按钮文案。
     pub submit_button: Cow<'static, str>,
     /// 发表成功标志。
@@ -92,6 +104,12 @@ pub static DEFAULT_SELECTORS: Selectors = Selectors {
     ),
     schedule_picker_day: Cow::Borrowed(".weui-desktop-picker__table a"),
     schedule_time_input: Cow::Borrowed("input[placeholder='请选择时间']"),
+    collection_label: Cow::Borrowed("添加到合集"),
+    link_label: Cow::Borrowed("链接"),
+    activity_label: Cow::Borrowed("活动"),
+    mark_label: Cow::Borrowed("视频标注"),
+    mark_ai_keyword: Cow::Borrowed("含AI"),
+    mark_option: Cow::Borrowed(".mark-tag-option, .option-main"),
     submit_button: Cow::Borrowed("发表"),
     publish_success_indicator: Cow::Borrowed(".publish-success, #result[data-value='published']"),
     publish_error_indicator: Cow::Borrowed(
@@ -377,6 +395,174 @@ impl<'a> PublishPage<'a> {
             )),
             _ => Ok(()),
         }
+    }
+
+    /// 通用下拉选择：点 label 行的下拉区 → 弹层里点选项文案 → 回填校验。
+    pub async fn select_dropdown_option(
+        &self,
+        label: &str,
+        option: &str,
+        stage: Stage,
+    ) -> Result<()> {
+        let lbl = serde_json::to_string(label).unwrap_or_default();
+        // 1) 点开下拉：label 所在表单项内的 placeholder/箭头
+        let open_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          for (const sub of __roots) {{
+            for (const lab of sub.querySelectorAll('.label, div, span')) {{
+              if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
+              const item = lab.closest('.form-item') || lab.parentElement;
+              if (!item) continue;
+              const ph = item.querySelector('.select-placeholder, [class*=select], [class*=dropdown]');
+              if (ph && vis(ph)) {{ ph.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}})); return true; }}
+              if (vis(item)) {{ item.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}})); return true; }}
+            }}
+          }}
+          return false;
+        }})()"#
+        );
+        let opened = self.run_js(&open_js, stage).await?;
+        if opened.as_deref() != Some("true") {
+            return Err(AppError::fmt(
+                Code::SchemaChanged,
+                stage,
+                format_args!("未找到下拉入口：{label}"),
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        // 2) 弹层里点选项（精确文案优先，其次包含）
+        let opt = serde_json::to_string(option).unwrap_or_default();
+        let pick_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          for (const sub of __roots) {{
+            for (const el of sub.querySelectorAll('li, [class*=option], [class*=item], .weui-desktop-select__option')) {{
+              if (!vis(el)) continue;
+              const t = (el.innerText||'').trim();
+              if (t === {opt}) {{
+                el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
+                return 'exact';
+              }}
+            }}
+          }}
+          for (const sub of __roots) {{
+            for (const el of sub.querySelectorAll('li, [class*=option], [class*=item]')) {{
+              if (!vis(el)) continue;
+              const t = (el.innerText||'').trim();
+              if (t.includes({opt})) {{
+                el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
+                return 'fuzzy';
+              }}
+            }}
+          }}
+          return '';
+        }})()"#
+        );
+        let picked = self.run_js(&pick_js, stage).await?.unwrap_or_default();
+        if picked.is_empty() {
+            return Err(AppError::fmt(
+                Code::SchemaChanged,
+                stage,
+                format_args!(
+                    "下拉「{label}」中没有选项「{option}」（账号可能没有可用的合集/链接/活动）"
+                ),
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        Ok(())
+    }
+
+    /// 勾选"含 AI 生成内容"视频标注（div 模拟 checkbox，需要完整 mouse 事件序列）。
+    /// 交互校准自 frankwei2019/auto-weixin-video 的踩坑记录。
+    pub async fn mark_ai_content(&self) -> Result<()> {
+        let kw = self.selectors.mark_ai_keyword.as_ref();
+        let kw_json = serde_json::to_string(kw).unwrap_or_default();
+        let mark_sel = self.selectors.mark_option.as_ref();
+        // 1) 展开折叠区：点"视频标注"占位
+        let lbl = serde_json::to_string(self.selectors.mark_label.as_ref()).unwrap_or_default();
+        let expand_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          for (const sub of __roots) {{
+            for (const el of sub.querySelectorAll('.select-placeholder, span, div, [class*=mark]')) {{
+              if (vis(el) && (el.innerText||'').trim() === {lbl}) {{
+                el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
+                return true;
+              }}
+            }}
+          }}
+          return false;
+        }})()"#
+        );
+        let _ = self.run_js(&expand_js, Stage::Declaration).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        // 2) 探测当前状态
+        let probe_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const sub of __roots) {{
+            for (const el of sub.querySelectorAll({mark_sel:?})) {{
+              const t = (el.innerText||'').trim();
+              if (t.includes({kw_json})) {{
+                const cls = (typeof el.className === 'string' ? el.className : '');
+                return (cls.includes('checked') || cls.includes('is-selected') || el.getAttribute('aria-checked') === 'true') ? 'checked' : 'unchecked';
+              }}
+            }}
+          }}
+          return 'absent';
+        }})()"#,
+            mark_sel = mark_sel
+        );
+        let state = self.run_js(&probe_js, Stage::Declaration).await?;
+        if state.as_deref() == Some("checked") {
+            return Ok(());
+        }
+        // 3) 完整 mouse 事件序列 + el.click()
+        let click_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const sub of __roots) {{
+            for (const el of sub.querySelectorAll({mark_sel:?})) {{
+              const t = (el.innerText||'').trim();
+              if (t.includes({kw_json})) {{
+                el.scrollIntoView({{block:'center'}});
+                const r = el.getBoundingClientRect();
+                const cx = r.left + r.width/2, cy = r.top + r.height/2;
+                ['mouseenter','mouseover','mousedown','focus','mouseup','click'].forEach(type => {{
+                  el.dispatchEvent(new MouseEvent(type, {{bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy, button:0}}));
+                }});
+                el.click();
+                return true;
+              }}
+            }}
+          }}
+          return false;
+        }})()"#,
+            mark_sel = mark_sel
+        );
+        let clicked = self.run_js(&click_js, Stage::Declaration).await?;
+        if clicked.as_deref() != Some("true") {
+            return Err(AppError::fmt(
+                Code::SchemaChanged,
+                Stage::Declaration,
+                format_args!("未找到视频标注选项（关键词 {kw}）"),
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        // 4) 校验
+        let state2 = self.run_js(&probe_js, Stage::Declaration).await?;
+        if state2.as_deref() != Some("checked") {
+            return Err(AppError::new(
+                Code::PublishRejected,
+                Stage::Declaration,
+                "视频标注勾选后状态校验未通过",
+            ));
+        }
+        Ok(())
     }
 
     /// 设置定时发表：radio"定时" → 日期 picker → 时间输入（键盘级事件，React 18 受控）。
