@@ -146,6 +146,7 @@ async fn dispatch(
         "logout" | "auth clear" => run_logout(cmd, stdout, deps).await,
         "publish" => run_publish(cmd, stdout, stderr, deps).await,
         "accounts" => run_accounts(stdout, deps),
+        "history" => run_history(cmd, stdout, deps),
         "inspect" => run_inspect(cmd, stdin, stdout, stderr, deps).await,
         "download" => run_download(cmd, stdin, stdout, stderr, deps).await,
         other => Err(AppError::fmt(
@@ -699,6 +700,50 @@ async fn run_publish(
     Ok(())
 }
 
+/// 解析 --at "YYYY-MM-DD HH:MM"（本地时区）。
+pub fn parse_schedule_at(raw: &str) -> Result<time::OffsetDateTime> {
+    static DATE_FMT: &[time::format_description::FormatItem<'_>] =
+        time::macros::format_description!("[year]-[month]-[day]");
+    static TIME_FMT: &[time::format_description::FormatItem<'_>] =
+        time::macros::format_description!("[hour]:[minute]");
+    let trimmed = raw.trim();
+    let (date_part, time_part) = trimmed.split_once([' ', 'T']).ok_or_else(|| {
+        AppError::new(
+            Code::ScheduleInvalid,
+            Stage::Arguments,
+            r#"--at 格式应为 "YYYY-MM-DD HH:MM""#,
+        )
+    })?;
+    let date = time::Date::parse(date_part, DATE_FMT).map_err(|_| {
+        AppError::new(
+            Code::ScheduleInvalid,
+            Stage::Arguments,
+            "--at 日期格式应为 YYYY-MM-DD",
+        )
+    })?;
+    let time_of_day = time::Time::parse(time_part, TIME_FMT).map_err(|_| {
+        AppError::new(
+            Code::ScheduleInvalid,
+            Stage::Arguments,
+            "--at 时间格式应为 HH:MM",
+        )
+    })?;
+    let naive = date.with_time(time_of_day);
+    // 本地时区偏移
+    let now_local = time::OffsetDateTime::now_local()
+        .map_err(|_| AppError::new(Code::ScheduleInvalid, Stage::Arguments, "无法获取本机时区"))?;
+    let local_offset = now_local.offset();
+    let at = naive.assume_offset(local_offset);
+    if at <= now_local {
+        return Err(AppError::new(
+            Code::ScheduleInvalid,
+            Stage::Arguments,
+            "--at 必须是未来的时间",
+        ));
+    }
+    Ok(at)
+}
+
 fn parse_tags(raw: Option<&str>) -> Vec<String> {
     raw.map(|s| {
         s.split([',', '，'])
@@ -707,6 +752,61 @@ fn parse_tags(raw: Option<&str>) -> Vec<String> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// 读取恢复轨迹 history.jsonl，输出最近 N 条（默认 20）。
+fn run_history(cmd: &Command, stdout: &mut dyn Write, deps: &Deps) -> Result<()> {
+    let limit: usize = cmd.flag("limit").and_then(|v| v.parse().ok()).unwrap_or(20);
+    let json_mode = cmd.bool_flag("json");
+    let path = (deps.config_dir)().join("history.jsonl");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            writeln!(stdout, "暂无历史记录（history.jsonl 不存在）")
+                .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(AppError::fmt(
+                Code::IOError,
+                Stage::Arguments,
+                format_args!("无法读取历史记录: {e}"),
+            ))
+        }
+    };
+    let mut entries: Vec<serde_json::Value> = raw
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    // 只保留 publish 轨迹，倒序取最近 N 条
+    entries.retain(|e| e.get("command").and_then(|c| c.as_str()) == Some("publish"));
+    entries.reverse();
+    entries.truncate(limit);
+    if json_mode {
+        let env = output::success_envelope("history", serde_json::json!({"entries": entries}));
+        return output::write_json(stdout, &env);
+    }
+    if entries.is_empty() {
+        writeln!(stdout, "暂无发布历史记录")
+            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+        return Ok(());
+    }
+    for e in &entries {
+        let ts = e.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+        let stage = e.get("stage").and_then(|v| v.as_str()).unwrap_or("");
+        let sel = e
+            .get("attempted_selector")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let backend = e.get("backend").and_then(|v| v.as_str()).unwrap_or("");
+        let outcome = e.get("outcome").and_then(|v| v.as_str()).unwrap_or("");
+        writeln!(
+            stdout,
+            "{ts} [{stage}] selector={sel} backend={backend} → {outcome}"
+        )
+        .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    }
+    Ok(())
 }
 
 fn run_accounts(stdout: &mut dyn Write, deps: &Deps) -> Result<()> {
@@ -1530,5 +1630,88 @@ mod m2_tests {
         assert_eq!(parse_tags(Some("  a , ,b,,")), vec!["a", "b"]);
         assert_eq!(parse_tags(None), Vec::<String>::new());
         assert_eq!(parse_tags(Some("")), Vec::<String>::new());
+    }
+}
+
+#[cfg(test)]
+mod m4_cli_tests {
+    use super::*;
+    use crate::cli::run::parse_schedule_at;
+
+    #[test]
+    fn schedule_at_parsing() {
+        let at = parse_schedule_at("2999-06-15 09:05").unwrap();
+        assert_eq!(at.day(), 15);
+        assert_eq!(at.minute(), 5);
+        assert!(parse_schedule_at("2001-01-01 00:00").is_err());
+        assert!(parse_schedule_at("tomorrow 8pm").is_err());
+    }
+
+    #[tokio::test]
+    async fn history_command_empty() {
+        let base = std::env::temp_dir().join(format!("sph-hist-test-{:016x}", {
+            use rand::Rng;
+            rand::thread_rng().gen::<u64>()
+        }));
+        std::fs::create_dir_all(&base).unwrap();
+        let cfg = base.join("cfg");
+        let deps = m2_deps_for_hist(cfg.clone());
+        let (code, out, _) = run_cli_hist(&deps, "", &["history"]).await;
+        assert_eq!(code, 0);
+        assert!(out.contains("暂无"), "out: {out}");
+    }
+
+    #[tokio::test]
+    async fn history_command_lists_entries() {
+        let base = std::env::temp_dir().join(format!("sph-hist2-test-{:016x}", {
+            use rand::Rng;
+            rand::thread_rng().gen::<u64>()
+        }));
+        let cfg = base.join("cfg");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(
+            cfg.join("history.jsonl"),
+            "{\"ts\":\"2026-09-24T12:00:00Z\",\"command\":\"publish\",\"stage\":\"upload\",\"attempted_selector\":\"#f\",\"backend\":\"null\",\"action\":null,\"outcome\":\"no_recovery\",\"scene_dir\":null}\n",
+        )
+        .unwrap();
+        let deps = m2_deps_for_hist(cfg);
+        let (code, out, _) = run_cli_hist(&deps, "", &["history"]).await;
+        assert_eq!(code, 0);
+        assert!(out.contains("upload"), "out: {out}");
+        assert!(out.contains("no_recovery"), "out: {out}");
+        // JSON 模式
+        let (code, out, _) = run_cli_hist(&deps, "", &["history", "--json"]).await;
+        assert_eq!(code, 0);
+        let v: serde_json::Value = serde_json::from_str(out.trim_end_matches('\n')).unwrap();
+        assert_eq!(v["data"]["entries"][0]["stage"], "upload");
+    }
+
+    fn m2_deps_for_hist(cfg_dir: PathBuf) -> Deps {
+        Deps {
+            config_dir: Box::new(move || cfg_dir.clone()),
+            interactive: Box::new(|| false),
+            upstream_factory: Box::new(|| {
+                Client::new(Arc::new(crate::http::ReqwestTransport::api()))
+            }),
+            media_factory: Box::new(|| Arc::new(crate::http::ReqwestTransport::media())),
+            cancel: CancelToken::default(),
+        }
+    }
+
+    async fn run_cli_hist(deps: &Deps, stdin_data: &str, argv: &[&str]) -> (i32, String, String) {
+        let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+        let stdin: Arc<Mutex<dyn Read + Send>> = Arc::new(Mutex::new(std::io::Cursor::new(
+            stdin_data.as_bytes().to_vec(),
+        )));
+        let mut stdout = Vec::new();
+        let stderr_vec: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        let stderr: SharedWriter = stderr_vec.clone();
+        let code = run(&argv, stdin, &mut stdout, stderr, deps).await;
+        let err_out = stderr_vec.lock().unwrap().clone();
+        (
+            code,
+            String::from_utf8_lossy(&stdout).into_owned(),
+            String::from_utf8_lossy(&err_out).into_owned(),
+        )
     }
 }

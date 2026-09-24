@@ -20,7 +20,7 @@ serde_json = "1"
 sha2 = "0.10"
 url = "2"
 futures = "0.3"
-time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros", "local-offset"] }
 fs4 = "0.12"
 rand = "0.8"
 chromiumoxide = "0.9"

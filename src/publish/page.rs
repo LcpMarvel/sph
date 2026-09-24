@@ -50,6 +50,18 @@ pub struct Selectors {
     pub original_declaration_checkbox: Cow<'static, str>,
     /// "声明原创"文案（用于定位原创表单项）。
     pub original_declaration_label: Cow<'static, str>,
+    /// 定时 radio 的文案（"定时"，精确匹配，不是"不定时"）。
+    pub schedule_radio_label: Cow<'static, str>,
+    /// 定时日期输入框（placeholder 线索）。
+    pub schedule_date_input: Cow<'static, str>,
+    /// 日期 picker 头部（当前月份）。
+    pub schedule_picker_header: Cow<'static, str>,
+    /// 日期 picker 下月箭头。
+    pub schedule_picker_next: Cow<'static, str>,
+    /// 日期 picker 日期单元。
+    pub schedule_picker_day: Cow<'static, str>,
+    /// 定时时间输入框（placeholder 线索）。
+    pub schedule_time_input: Cow<'static, str>,
     /// 发表按钮文案。
     pub submit_button: Cow<'static, str>,
     /// 发表成功标志。
@@ -72,6 +84,14 @@ pub static DEFAULT_SELECTORS: Selectors = Selectors {
     cover_file_input: Cow::Borrowed("input[type=file][accept*='image']"),
     original_declaration_checkbox: Cow::Borrowed(".ant-checkbox-input"),
     original_declaration_label: Cow::Borrowed("声明原创"),
+    schedule_radio_label: Cow::Borrowed("定时"),
+    schedule_date_input: Cow::Borrowed("input[placeholder='请选择发表时间']"),
+    schedule_picker_header: Cow::Borrowed(".weui-desktop-picker__panel__hd"),
+    schedule_picker_next: Cow::Borrowed(
+        ".weui-desktop-picker__panel__hd .weui-desktop-btn__icon__right",
+    ),
+    schedule_picker_day: Cow::Borrowed(".weui-desktop-picker__table a"),
+    schedule_time_input: Cow::Borrowed("input[placeholder='请选择时间']"),
     submit_button: Cow::Borrowed("发表"),
     publish_success_indicator: Cow::Borrowed(".publish-success, #result[data-value='published']"),
     publish_error_indicator: Cow::Borrowed(
@@ -348,6 +368,205 @@ impl<'a> PublishPage<'a> {
             )),
             _ => Ok(()),
         }
+    }
+
+    /// 设置定时发表：radio"定时" → 日期 picker → 时间输入（键盘级事件，React 18 受控）。
+    /// 交互序列校准自 frankwei2019/auto-weixin-video 的踩坑记录。
+    pub async fn set_schedule(&self, at: time::OffsetDateTime) -> Result<()> {
+        // 1) 切"定时"radio（点文案 span；React 受控需真实事件）
+        let label = self.selectors.schedule_radio_label.as_ref();
+        let radio_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          for (const sub of __roots) {{
+            for (const sp of sub.querySelectorAll('span.weui-desktop-form__check-content')) {{
+              if (vis(sp) && (sp.innerText||'').trim() === {label:?}) {{
+                sp.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
+                return true;
+              }}
+            }}
+          }}
+          return false;
+        }})()"#
+        );
+        let clicked = self.run_js(&radio_js, Stage::Schedule).await?;
+        if clicked.as_deref() != Some("true") {
+            return Err(AppError::new(
+                Code::SchemaChanged,
+                Stage::Schedule,
+                "未找到定时选项",
+            ));
+        }
+        // 等 React 重渲染出日期/时间输入
+        tokio::time::sleep(Duration::from_millis(2000)).await;
+
+        // 2) 日期：触发 picker → 必要时翻月 → 点目标日
+        let date_input = self.selectors.schedule_date_input.as_ref();
+        let focus_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const sub of __roots) {{
+            const inp = sub.querySelector({date_input:?});
+            if (inp) {{ inp.focus(); inp.click(); return true; }}
+          }}
+          return false;
+        }})()"#
+        );
+        let has_picker = self.run_js(&focus_js, Stage::Schedule).await?;
+        if has_picker.as_deref() == Some("true") {
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            // 翻月：读头部月份，差几个月点几次右箭头
+            let header = self.selectors.schedule_picker_header.as_ref();
+            let month_js = format!(
+                r#"(function(){{
+              {ROOTS}
+              for (const sub of __roots) {{
+                for (const h of sub.querySelectorAll({header:?})) {{
+                  const t = (h.innerText||'').trim();
+                  const m = t.match(/(\d+)月/);
+                  if (m) return m[1];
+                }}
+              }}
+              return '';
+            }})()"#
+            );
+            let cur_month = self
+                .run_js(&month_js, Stage::Schedule)
+                .await?
+                .and_then(|m| m.parse::<u8>().ok());
+            let target_month = at.month() as u8;
+            if let Some(cur) = cur_month {
+                if cur != target_month {
+                    let clicks = (target_month as i32 - cur as i32).rem_euclid(12) as usize;
+                    let arrow = self.selectors.schedule_picker_next.as_ref();
+                    for _ in 0..clicks.clamp(1, 12) {
+                        let click_js = format!(
+                            r#"(function(){{
+                          {ROOTS}
+                          for (const sub of __roots) {{
+                            const a = sub.querySelector({arrow:?});
+                            if (a) {{ a.dispatchEvent(new MouseEvent('click', {{bubbles:true}})); return true; }}
+                          }}
+                          return false;
+                        }})()"#
+                        );
+                        let _ = self.run_js(&click_js, Stage::Schedule).await;
+                        tokio::time::sleep(Duration::from_millis(600)).await;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+            // 点目标日（非 disabled）
+            let day = at.day();
+            let day_sel = self.selectors.schedule_picker_day.as_ref();
+            let day_js = format!(
+                r#"(function(){{
+              {ROOTS}
+              for (const sub of __roots) {{
+                for (const a of sub.querySelectorAll({day_sel:?})) {{
+                  if ((a.innerText||'').trim() === {day:?} && !(a.className||'').includes('disabled')) {{
+                    a.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
+                    return true;
+                  }}
+                }}
+              }}
+              return false;
+            }})()"#,
+                day = day.to_string()
+            );
+            let day_clicked = self.run_js(&day_js, Stage::Schedule).await?;
+            if day_clicked.as_deref() != Some("true") {
+                return Err(AppError::fmt(
+                    Code::ScheduleInvalid,
+                    Stage::Schedule,
+                    format_args!(
+                        "日期选择失败：{} 日不可选（可能早于平台允许的最小日期）",
+                        day
+                    ),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(800)).await;
+        }
+
+        // 3) 时间：聚焦 + 全选 + insertText 替换选区 + Tab blur（React 18 onChange 同步）
+        let time_sel = self.selectors.schedule_time_input.as_ref();
+        let time_str = format!("{:02}:{:02}", at.hour(), at.minute());
+        let prep_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const sub of __roots) {{
+            const inp = sub.querySelector({time_sel:?});
+            if (inp) {{ inp.focus(); inp.click(); inp.select(); return true; }}
+          }}
+          return false;
+        }})()"#
+        );
+        let focused = self.run_js(&prep_js, Stage::Schedule).await?;
+        if focused.as_deref() != Some("true") {
+            return Err(AppError::new(
+                Code::SchemaChanged,
+                Stage::Schedule,
+                "未找到定时时间输入框",
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        self.insert_text(&time_str, Stage::Schedule).await?;
+        // Tab blur 触发 onChange 同步
+        self.press_key("Tab", Stage::Schedule).await?;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // 4) 校验回填值
+        let verify_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const sub of __roots) {{
+            const inp = sub.querySelector({time_sel:?});
+            if (inp) return inp.value || '';
+          }}
+          return '';
+        }})()"#
+        );
+        let actual = self
+            .run_js(&verify_js, Stage::Schedule)
+            .await?
+            .unwrap_or_default();
+        if actual.trim() != time_str {
+            return Err(AppError::fmt(
+                Code::ScheduleInvalid,
+                Stage::Schedule,
+                format_args!("时间回填校验失败：期望 {time_str}，实际 {actual}"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 按一次键（keyDown+keyUp）。
+    async fn press_key(&self, key: &str, stage: Stage) -> Result<()> {
+        use chromiumoxide::cdp::browser_protocol::input::{
+            DispatchKeyEventParams, DispatchKeyEventType,
+        };
+        for t in [DispatchKeyEventType::KeyDown, DispatchKeyEventType::KeyUp] {
+            self.page
+                .execute(
+                    DispatchKeyEventParams::builder()
+                        .r#type(t)
+                        .key(key)
+                        .build()
+                        .map_err(|e| {
+                            AppError::fmt(
+                                Code::SchemaChanged,
+                                stage,
+                                format_args!("构造按键失败: {e}"),
+                            )
+                        })?,
+                )
+                .await
+                .map_err(|e| {
+                    AppError::fmt(Code::SchemaChanged, stage, format_args!("按键失败: {e}"))
+                })?;
+        }
+        Ok(())
     }
 
     /// 提交并等待平台结果。dry-run 不在此处调用。

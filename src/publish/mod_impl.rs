@@ -39,6 +39,8 @@ pub struct Options {
     pub navigate_url: Option<String>,
     /// 单步超时（测试可注入小值；默认 60s）。
     pub step_timeout: Duration,
+    /// 定时发表时间（本地时区；None = 立即发表）。
+    pub schedule_at: Option<time::OffsetDateTime>,
 }
 
 /// 页面工厂类型别名（测试注入假实现）。
@@ -62,6 +64,8 @@ pub struct PublishResult {
     #[serde(rename = "dry_run")]
     pub dry_run: bool,
     pub submitted: bool,
+    #[serde(rename = "scheduled_at", skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<String>,
 }
 
 fn werr(stderr: &SharedWriter, args: std::fmt::Arguments) {
@@ -281,6 +285,10 @@ pub(crate) async fn run_inner_with_backend(
             title: opts.title.clone(),
             dry_run: true,
             submitted: false,
+            scheduled_at: opts.schedule_at.map(|t| {
+                t.format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default()
+            }),
         });
     }
 
@@ -299,6 +307,10 @@ pub(crate) async fn run_inner_with_backend(
         title: opts.title.clone(),
         dry_run: false,
         submitted: true,
+        scheduled_at: opts.schedule_at.map(|t| {
+            t.format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default()
+        }),
     })
 }
 
@@ -352,5 +364,6 @@ pub fn default_options(
         selectors: None,
         navigate_url: None,
         step_timeout: Duration::from_secs(60),
+        schedule_at: None,
     }
 }

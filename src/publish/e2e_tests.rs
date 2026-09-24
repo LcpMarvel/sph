@@ -3,9 +3,10 @@
 //! 测试需要本机有 Chromium：SPH_CHROME 环境变量或 rod 缓存；CI 经 SPH_CHROME 注入。
 
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use crate::apperr::{Code, Stage};
     use crate::browser::{self, SharedWriter};
+    use crate::cli::run::parse_schedule_at;
     use crate::http::CancelToken;
     use crate::publish::mod_impl::{default_options, run, validate, OpenedPage, Options};
     use crate::publish::page::DEFAULT_SELECTORS;
@@ -344,5 +345,54 @@ pub(super) mod tests {
         let a = RecoveryAction::Wait(Duration::from_millis(5));
         let b = a.clone();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn parse_schedule_at_formats() {
+        // 合法：未来时间
+        let at = parse_schedule_at("2999-01-01 08:30").unwrap();
+        assert_eq!(at.hour(), 8);
+        assert_eq!(at.minute(), 30);
+        // T 分隔也接受
+        let at2 = parse_schedule_at("2999-01-01T08:30").unwrap();
+        assert_eq!(at2.hour(), 8);
+        // 过去时间拒绝
+        let err = parse_schedule_at("2020-01-01 08:30").unwrap_err();
+        assert_eq!(err.code, Code::ScheduleInvalid);
+        // 坏格式拒绝
+        assert_eq!(
+            parse_schedule_at("nope").unwrap_err().code,
+            Code::ScheduleInvalid
+        );
+        assert_eq!(
+            parse_schedule_at("2026-13-01 08:30").unwrap_err().code,
+            Code::ScheduleInvalid
+        );
+        assert_eq!(
+            parse_schedule_at("2999-01-01 25:00").unwrap_err().code,
+            Code::ScheduleInvalid
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_publish_with_schedule_dry_run() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("sched");
+        make_session(&config);
+        let work = tempdir("worksched");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        // 本地时区未来 2 小时
+        let now_local = time::OffsetDateTime::now_local().unwrap();
+        opts.schedule_at = Some(now_local + Duration::from_secs(2 * 3600));
+        let result = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap();
+        assert!(result.dry_run);
+        assert!(
+            result.scheduled_at.is_some(),
+            "scheduled_at must be reported"
+        );
     }
 }

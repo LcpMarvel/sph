@@ -24,6 +24,18 @@
   <input type="file" id="cover-file" accept="image/jpeg">
   <div class="cover-preview-wrap" hidden>封面预览</div>
   <input type="checkbox" class="ant-checkbox-input" id="original-checkbox">
+  <div class="schedule-row">
+    <span class="weui-desktop-form__check-content">不定时</span>
+    <span class="weui-desktop-form__check-content">定时</span>
+  </div>
+  <div class="schedule-panel" hidden>
+    <input placeholder="请选择发表时间" id="sched-date">
+    <div class="weui-desktop-picker" hidden>
+      <div class="weui-desktop-picker__panel__hd">9月</div>
+      <div class="weui-desktop-picker__table"><a>23</a><a>24</a><a>25</a><a>26</a></div>
+    </div>
+    <input placeholder="请选择时间" id="sched-time">
+  </div>
   <button id="submit-btn" type="button">发表</button>
   <div id="result" data-value="">未提交</div>
   <div class="publish-error" hidden></div>
@@ -50,6 +62,23 @@ document.getElementById('submit-btn').addEventListener('click', function () {
   }
 });
 // 输入痕迹（供断言）
+// 定时：点"定时"radio 显示面板；点日期 input 弹 picker；点日期回填
+document.querySelectorAll('.weui-desktop-form__check-content').forEach(function (sp) {
+  if ((sp.innerText || '').trim() === '定时') {
+    sp.addEventListener('click', function () {
+      document.querySelector('.schedule-panel').hidden = false;
+    });
+  }
+});
+document.getElementById('sched-date').addEventListener('click', function () {
+  document.querySelector('.weui-desktop-picker').hidden = false;
+});
+document.querySelectorAll('.weui-desktop-picker__table a').forEach(function (a) {
+  a.addEventListener('click', function () {
+    document.getElementById('sched-date').value = '2026-09-' + (a.innerText.length < 2 ? '0' : '') + a.innerText;
+    document.querySelector('.weui-desktop-picker').hidden = true;
+  });
+});
 document.querySelector('.tag-inner').addEventListener('click', function () {
   document.querySelector('.topic-dialog').hidden = false;
 });

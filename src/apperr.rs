@@ -34,6 +34,7 @@ pub enum Code {
     SessionExpired,
     PublishRejected,
     RecoveryFailed,
+    ScheduleInvalid,
 }
 
 impl Code {
@@ -65,6 +66,7 @@ impl Code {
             Code::SessionExpired => "SESSION_EXPIRED",
             Code::PublishRejected => "PUBLISH_REJECTED",
             Code::RecoveryFailed => "RECOVERY_FAILED",
+            Code::ScheduleInvalid => "SCHEDULE_INVALID",
             Code::Cancelled => "CANCELLED",
         }
     }
@@ -89,6 +91,7 @@ impl Code {
             Code::SessionExpired => 15,
             Code::PublishRejected => 16,
             Code::RecoveryFailed => 17,
+            Code::ScheduleInvalid => 18,
             Code::Cancelled => 130,
         }
     }

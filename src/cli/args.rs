@@ -45,12 +45,14 @@ fn cmd_flag_specs(command: &str) -> Vec<FlagSpec> {
             spec("tags"),
             spec("cover"),
             spec("account"),
+            spec("at"),
             bool_spec("dry-run"),
             bool_spec("headed"),
             bool_spec("json"),
             spec("timeout"),
         ],
         "logout" => vec![bool_spec("assistant")],
+        "history" => vec![spec("limit"), bool_spec("json")],
         "inspect" => vec![bool_spec("stdin"), bool_spec("json"), spec("timeout")],
         "download" => vec![
             bool_spec("stdin"),
@@ -94,6 +96,7 @@ pub fn known_commands() -> Vec<&'static str> {
         "logout",
         "publish",
         "accounts",
+        "history",
         "version",
         "help",
     ]

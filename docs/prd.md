@@ -278,7 +278,15 @@ v1 退出码表（0–14, 130）全部保留。新增：
 - **实测**：110/110 测试（含失败现场保存 e2e：超时 → crashes 落盘 + 轨迹入 history.jsonl）。
 - 待办：Jev/LLM 后端实现（接口已就绪）；补丁 export/import/report；`sph doctor`。
 
-### M4 — 规模化：`--at` / `batch` / 多账号
+### M4 — 规模化：`--at` / `batch` / 多账号（第一刀 ✅ 2026-09-24）
+
+- **`--at "YYYY-MM-DD HH:MM"` 定时发表**：radio"定时" → 日期 picker（读头部月份翻页、点目标日）→ 时间输入（focus+select+insertText+Tab blur，React 18 受控组件的键盘级路径）→ 回填校验；交互序列校准自 frankwei2019/auto-weixin-video 的踩坑记录；非未来时间/坏格式报 18 SCHEDULE_INVALID；
+- **`sph history [--limit N] [--json]`**：读取恢复轨迹 history.jsonl（M3 落盘），最近 N 条 / JSON 信封；
+- `publish --account` 多账号参数 M2 已就位；`login --account` 与 `batch` 留待下一刀；
+- **实测**：115/115 测试（定时 fixture e2e：picker 仿真全流程；--at 解析矩阵；history 命令空/有数据/JSON 模式）。
+- 待办：`login --account`、`sph batch <dir>`（顺序批量）、真实定时验收（会真实创建定时任务，由用户日常使用验证）。
+
+### M4 — 规模化（后续）
 
 - 定时发表（优先平台原生定时入口，不可用时本地调度兜底）；
 - `sph batch <dir>`；多账号登记与 `--account` 切换；

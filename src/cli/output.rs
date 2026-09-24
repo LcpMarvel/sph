@@ -122,6 +122,7 @@ pub const HELP_TEXT: &str = "sph — 微信视频号本地自动化工具（v2�
   sph login --yuanbao                        登录元宝（下载解析凭证，一次性浏览器）
   sph publish VIDEO.mp4 --title \"标题\" [选项]  发布视频到视频号
   sph accounts                               查看本地账号会话状态（不联网）
+  sph history [--limit N] [--json]           查看发布恢复轨迹
   sph inspect URL [--json] [--timeout 60s]    解析分享链接，查看视频信息
   sph download URL [-o FILE.mp4] [--overwrite] [--max-bytes N] [--json]
   pbpaste | sph download --stdin              从 stdin 读取链接
@@ -135,6 +136,8 @@ publish 选项:
   --description \"描述\"
   --tags \"机械,科普\"     逗号分隔
   --cover FILE.jpg       封面图
+  --at \"YYYY-MM-DD HH:MM\"  定时发表（本地时区，默认立即）
+  --account NAME         使用指定账号（默认 default）
   --dry-run              走完除提交外的全部步骤
   --headed               可见浏览器（调试用）
   --json                 单 JSON 对象输出
