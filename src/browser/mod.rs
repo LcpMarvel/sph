@@ -2,6 +2,7 @@
 //! （M3 起承载 page_state / Jev / LLM 恢复层。）
 
 pub mod fetch;
+pub mod page_state;
 
 use std::io::Write;
 use std::path::Path;

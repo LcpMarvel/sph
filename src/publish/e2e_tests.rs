@@ -3,7 +3,7 @@
 //! 测试需要本机有 Chromium：SPH_CHROME 环境变量或 rod 缓存；CI 经 SPH_CHROME 注入。
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use crate::apperr::{Code, Stage};
     use crate::browser::{self, SharedWriter};
     use crate::http::CancelToken;
@@ -269,23 +269,80 @@ mod tests {
     fn selectors_default_is_complete() {
         let s = &DEFAULT_SELECTORS;
         let all = [
-            s.home_ready,
-            s.login_indicator,
-            s.publish_entry,
-            s.video_file_input,
-            s.upload_done_indicator,
-            s.title_input,
-            s.description_editor,
-            s.topic_prefix,
-            s.cover_file_input,
-            s.original_declaration_checkbox,
-            s.submit_button,
-            s.publish_success_indicator,
-            s.publish_error_indicator,
+            s.home_ready.as_ref(),
+            s.login_indicator.as_ref(),
+            s.publish_entry.as_ref(),
+            s.video_file_input.as_ref(),
+            s.upload_done_indicator.as_ref(),
+            s.title_input.as_ref(),
+            s.description_editor.as_ref(),
+            s.topic_prefix.as_ref(),
+            s.cover_file_input.as_ref(),
+            s.original_declaration_checkbox.as_ref(),
+            s.submit_button.as_ref(),
+            s.publish_success_indicator.as_ref(),
+            s.publish_error_indicator.as_ref(),
         ];
         for sel in all {
             assert!(!sel.is_empty());
         }
         assert_eq!(all.len(), 13);
+    }
+    use crate::publish::recovery::RecoveryAction;
+
+    // 失败现场保存 e2e：补丁把 home_ready 改成不存在的 selector，
+    // 步骤超时 → 快照 + 截图落盘 config/crashes/，轨迹进 history.jsonl。
+    #[tokio::test]
+    async fn m3_failure_saves_scene_and_trace() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("m3scene");
+        make_session(&config);
+        // 补丁：home_ready 指向不存在的元素
+        std::fs::create_dir_all(config.join("patches")).unwrap();
+        std::fs::write(
+            config.join("patches").join("publish.json"),
+            br#"{"selectors": {"home_ready": ".never-exists"}}"#,
+        )
+        .unwrap();
+
+        let work = tempdir("workm3");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.step_timeout = Duration::from_secs(2);
+
+        // selector 直接注入（补丁文件加载路径已由单测覆盖）：home_ready 指向不存在的元素
+        let mut patched = crate::publish::page::DEFAULT_SELECTORS.clone();
+        patched.home_ready = std::borrow::Cow::Borrowed(".never-exists");
+        opts.selectors = Some(patched);
+        let err = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap_err();
+        assert_eq!(err.code, Code::Timeout, "err: {err}");
+
+        // 现场保存：crashes/<dir>/{snapshot.json,page.txt,screenshot.png}
+        let crashes = std::fs::read_dir(config.join("crashes")).unwrap();
+        let scene = crashes
+            .filter_map(|e| e.ok())
+            .next()
+            .expect("scene dir must exist");
+        assert!(scene.path().join("snapshot.json").exists());
+        assert!(scene.path().join("page.txt").exists());
+        assert!(scene.path().join("screenshot.png").exists());
+        let snapshot = std::fs::read_to_string(scene.path().join("snapshot.json")).unwrap();
+        assert!(snapshot.contains("\"stage\": \"navigate\""));
+        assert!(snapshot.contains("never-exists"));
+
+        // 轨迹落盘 history.jsonl
+        let history = std::fs::read_to_string(config.join("history.jsonl")).unwrap();
+        assert!(history.contains("\"outcome\":\"no_recovery\""));
+        assert!(history.contains("\"backend\":\"null\""));
+    }
+
+    #[test]
+    fn recovery_action_wait_is_cloneable() {
+        let a = RecoveryAction::Wait(Duration::from_millis(5));
+        let b = a.clone();
+        assert_eq!(a, b);
     }
 }

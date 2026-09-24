@@ -6,6 +6,7 @@
 //!
 //! selector 表集中于此（2026-09 校准自真实页面；改版后由 M3 补丁机制接管）。
 
+use std::borrow::Cow;
 use std::path::Path;
 use std::time::Duration;
 
@@ -26,54 +27,56 @@ const STEP_TIMEOUT: Duration = Duration::from_secs(90);
 #[derive(Debug, Clone)]
 pub struct Selectors {
     /// 主页就绪标志（登录后主页品牌元素，存在即视为已登录）。
-    pub home_ready: &'static str,
+    pub home_ready: Cow<'static, str>,
     /// 登录页标志（存在即未登录 → SESSION_EXPIRED）。
-    pub login_indicator: &'static str,
+    pub login_indicator: Cow<'static, str>,
     /// 主页"发表视频"入口按钮文案（子应用内）。
-    pub publish_entry: &'static str,
+    pub publish_entry: Cow<'static, str>,
     /// 侧边栏"视频"菜单项（进入视频管理页）。
-    pub video_menu: &'static str,
+    pub video_menu: Cow<'static, str>,
     /// 视频文件上传框（DOM.performSearch 查询串，穿透 shadow root）。
-    pub video_file_input: &'static str,
+    pub video_file_input: Cow<'static, str>,
     /// 上传完成标志：封面预览容器出现（平台自动截帧）。
-    pub upload_done_indicator: &'static str,
+    pub upload_done_indicator: Cow<'static, str>,
     /// 短标题输入框。
-    pub title_input: &'static str,
+    pub title_input: Cow<'static, str>,
     /// 视频描述编辑器（contenteditable）。
-    pub description_editor: &'static str,
+    pub description_editor: Cow<'static, str>,
     /// 话题前缀（在描述编辑器内联输入 #话题 + 空格触发自动完成）。
-    pub topic_prefix: &'static str,
+    pub topic_prefix: Cow<'static, str>,
     /// 封面上传框（图片文件框，performSearch 查询串）。
-    pub cover_file_input: &'static str,
+    pub cover_file_input: Cow<'static, str>,
     /// 原创声明勾选框（"声明原创" label 所在表单项内）。
-    pub original_declaration_checkbox: &'static str,
+    pub original_declaration_checkbox: Cow<'static, str>,
     /// "声明原创"文案（用于定位原创表单项）。
-    pub original_declaration_label: &'static str,
+    pub original_declaration_label: Cow<'static, str>,
     /// 发表按钮文案。
-    pub submit_button: &'static str,
+    pub submit_button: Cow<'static, str>,
     /// 发表成功标志。
-    pub publish_success_indicator: &'static str,
+    pub publish_success_indicator: Cow<'static, str>,
     /// 平台错误/拒绝提示。
-    pub publish_error_indicator: &'static str,
+    pub publish_error_indicator: Cow<'static, str>,
 }
 
 /// 内置 selector（2026-09 真实页面校准）。
-pub const DEFAULT_SELECTORS: Selectors = Selectors {
-    home_ready: ".brand-name",
-    login_indicator: ".qrcode-tip, #qrcode-login, .login-qrcode",
-    publish_entry: "发表视频",
-    video_menu: ".finder-ui-desktop-menu__sub__li",
-    video_file_input: "input[type=file][accept*='video']",
-    upload_done_indicator: ".cover-preview-wrap",
-    title_input: "input[placeholder*='短标题']",
-    description_editor: ".input-editor",
-    topic_prefix: "#",
-    cover_file_input: "input[type=file][accept*='image']",
-    original_declaration_checkbox: ".ant-checkbox-input",
-    original_declaration_label: "声明原创",
-    submit_button: "发表",
-    publish_success_indicator: ".publish-success, #result[data-value='published']",
-    publish_error_indicator: ".weui-desktop-dialog__bd, .forbid-dialog-title, .publish-error",
+pub static DEFAULT_SELECTORS: Selectors = Selectors {
+    home_ready: Cow::Borrowed(".brand-name"),
+    login_indicator: Cow::Borrowed(".qrcode-tip, #qrcode-login, .login-qrcode"),
+    publish_entry: Cow::Borrowed("发表视频"),
+    video_menu: Cow::Borrowed(".finder-ui-desktop-menu__sub__li"),
+    video_file_input: Cow::Borrowed("input[type=file][accept*='video']"),
+    upload_done_indicator: Cow::Borrowed(".cover-preview-wrap"),
+    title_input: Cow::Borrowed("input[placeholder*='短标题']"),
+    description_editor: Cow::Borrowed(".input-editor"),
+    topic_prefix: Cow::Borrowed("#"),
+    cover_file_input: Cow::Borrowed("input[type=file][accept*='image']"),
+    original_declaration_checkbox: Cow::Borrowed(".ant-checkbox-input"),
+    original_declaration_label: Cow::Borrowed("声明原创"),
+    submit_button: Cow::Borrowed("发表"),
+    publish_success_indicator: Cow::Borrowed(".publish-success, #result[data-value='published']"),
+    publish_error_indicator: Cow::Borrowed(
+        ".weui-desktop-dialog__bd, .forbid-dialog-title, .publish-error",
+    ),
 };
 
 /// 子应用定位前缀：找到第一个含 __probe 选择器的 wujie 子应用文档，
@@ -88,7 +91,7 @@ const ROOTS: &str = r#"const __roots = [...document.querySelectorAll('wujie-app'
 pub struct PublishPage<'a> {
     page: &'a Page,
     pub selectors: &'a Selectors,
-    dom_enabled: bool,
+    dom_enabled: std::cell::Cell<bool>,
 }
 
 impl<'a> PublishPage<'a> {
@@ -96,14 +99,14 @@ impl<'a> PublishPage<'a> {
         PublishPage {
             page,
             selectors,
-            dom_enabled: false,
+            dom_enabled: std::cell::Cell::new(false),
         }
     }
 
     /// 未登录检测（主文档）。
     pub async fn is_login_page(&self) -> bool {
         self.page
-            .find_element(self.selectors.login_indicator)
+            .find_element(self.selectors.login_indicator.as_ref())
             .await
             .is_ok()
     }
@@ -124,7 +127,7 @@ impl<'a> PublishPage<'a> {
     pub async fn wait_home_ready(&self, timeout: Duration) -> Result<()> {
         wait_for_selector(
             self.page,
-            self.selectors.home_ready,
+            self.selectors.home_ready.as_ref(),
             timeout,
             Stage::Navigate,
         )
@@ -160,11 +163,19 @@ impl<'a> PublishPage<'a> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             self.try_click_video_menu().await;
-            if self.sub_text_by_button(self.selectors.publish_entry).await
-                && self.try_click_button(self.selectors.publish_entry).await
+            if self
+                .sub_text_by_button(self.selectors.publish_entry.as_ref())
+                .await
+                && self
+                    .try_click_button(self.selectors.publish_entry.as_ref())
+                    .await
             {
                 return self
-                    .wait_sub(self.selectors.video_file_input, timeout, Stage::Navigate)
+                    .wait_sub(
+                        self.selectors.video_file_input.as_ref(),
+                        timeout,
+                        Stage::Navigate,
+                    )
                     .await;
             }
             if tokio::time::Instant::now() >= deadline {
@@ -179,7 +190,7 @@ impl<'a> PublishPage<'a> {
     }
 
     async fn try_click_video_menu(&self) {
-        let menu = self.selectors.video_menu;
+        let menu = self.selectors.video_menu.as_ref();
         let js = format!(
             r#"(function(){{
           {ROOTS}
@@ -244,11 +255,15 @@ impl<'a> PublishPage<'a> {
         }
     }
 
-    pub async fn upload_video(&mut self, video_path: &Path) -> Result<()> {
-        self.set_file_input(self.selectors.video_file_input, video_path, Stage::Upload)
-            .await?;
+    pub async fn upload_video(&self, video_path: &Path) -> Result<()> {
+        self.set_file_input(
+            self.selectors.video_file_input.as_ref(),
+            video_path,
+            Stage::Upload,
+        )
+        .await?;
         self.wait_sub(
-            self.selectors.upload_done_indicator,
+            self.selectors.upload_done_indicator.as_ref(),
             STEP_TIMEOUT,
             Stage::Upload,
         )
@@ -256,8 +271,13 @@ impl<'a> PublishPage<'a> {
     }
 
     pub async fn fill_title(&self, title: &str) -> Result<()> {
-        self.type_into(self.selectors.title_input, title, Stage::Metadata, true)
-            .await
+        self.type_into(
+            self.selectors.title_input.as_ref(),
+            title,
+            Stage::Metadata,
+            true,
+        )
+        .await
     }
 
     pub async fn fill_description(&self, description: &str) -> Result<()> {
@@ -265,7 +285,7 @@ impl<'a> PublishPage<'a> {
             return Ok(());
         }
         self.insert_into(
-            self.selectors.description_editor,
+            self.selectors.description_editor.as_ref(),
             description,
             Stage::Metadata,
         )
@@ -278,11 +298,11 @@ impl<'a> PublishPage<'a> {
         }
         // 平台话题 = 描述编辑器内联 "#话题 + 空格" 触发自动完成。
         // 先确保编辑器聚焦（描述可能为空，此时光标也应在编辑器里）。
-        self.focus_element(self.selectors.description_editor, Stage::Metadata)
+        self.focus_element(self.selectors.description_editor.as_ref(), Stage::Metadata)
             .await?;
         for tag in tags {
             self.insert_text(
-                &format!("{} {}", self.selectors.topic_prefix, tag),
+                &format!("{} {}", self.selectors.topic_prefix.as_ref(), tag),
                 Stage::Metadata,
             )
             .await?;
@@ -291,14 +311,18 @@ impl<'a> PublishPage<'a> {
         Ok(())
     }
 
-    pub async fn set_cover(&mut self, cover_path: &Path) -> Result<()> {
-        self.set_file_input(self.selectors.cover_file_input, cover_path, Stage::Cover)
-            .await
+    pub async fn set_cover(&self, cover_path: &Path) -> Result<()> {
+        self.set_file_input(
+            self.selectors.cover_file_input.as_ref(),
+            cover_path,
+            Stage::Cover,
+        )
+        .await
     }
 
     /// 原创声明：默认保守不勾。若已勾选则响亮报错交给人工确认。
     pub async fn check_declaration_conservative(&self) -> Result<()> {
-        let label = self.selectors.original_declaration_label;
+        let label = self.selectors.original_declaration_label.as_ref();
         let js = format!(
             r#"(function(){{
           {ROOTS}
@@ -330,7 +354,7 @@ impl<'a> PublishPage<'a> {
     /// 成功判定：页面跳转到 post/list 或 post/manage（平台行为，经真实项目校准）。
     pub async fn submit(&self) -> Result<()> {
         // 1) 等"发表"按钮可用（上传完成前按钮为禁用态）
-        let label = self.selectors.submit_button;
+        let label = self.selectors.submit_button.as_ref();
         let state_js = format!(
             r#"(function(){{
           {ROOTS}
@@ -370,7 +394,10 @@ impl<'a> PublishPage<'a> {
             }
         }
         // 2) 点击
-        if !self.try_click_button(self.selectors.submit_button).await {
+        if !self
+            .try_click_button(self.selectors.submit_button.as_ref())
+            .await
+        {
             return Err(AppError::new(
                 Code::SchemaChanged,
                 Stage::Submit,
@@ -391,12 +418,15 @@ impl<'a> PublishPage<'a> {
                 return Ok(());
             }
             if self
-                .sub_exists(self.selectors.publish_success_indicator)
+                .sub_exists(self.selectors.publish_success_indicator.as_ref())
                 .await
             {
                 return Ok(());
             }
-            if let Some(text) = self.sub_text(self.selectors.publish_error_indicator).await {
+            if let Some(text) = self
+                .sub_text(self.selectors.publish_error_indicator.as_ref())
+                .await
+            {
                 return Err(AppError::new(
                     Code::PublishRejected,
                     Stage::Submit,
@@ -480,8 +510,8 @@ impl<'a> PublishPage<'a> {
     }
 
     /// DOM.performSearch 全局搜索（穿透 shadow root）拿 nodeId。
-    async fn search_node(&mut self, query: &str, stage: Stage) -> Result<Option<NodeId>> {
-        if !self.dom_enabled {
+    async fn search_node(&self, query: &str, stage: Stage) -> Result<Option<NodeId>> {
+        if !self.dom_enabled.get() {
             self.page
                 .execute(EnableParams::default())
                 .await
@@ -503,7 +533,7 @@ impl<'a> PublishPage<'a> {
                         format_args!("文档快照失败: {e}"),
                     )
                 })?;
-            self.dom_enabled = true;
+            self.dom_enabled.set(true);
         }
         let search = self
             .page
@@ -537,7 +567,7 @@ impl<'a> PublishPage<'a> {
         Ok(results.node_ids.first().cloned())
     }
 
-    async fn set_file_input(&mut self, query: &str, path: &Path, stage: Stage) -> Result<()> {
+    async fn set_file_input(&self, query: &str, path: &Path, stage: Stage) -> Result<()> {
         let node = self
             .search_node(query, stage)
             .await?

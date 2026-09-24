@@ -267,11 +267,16 @@ v1 退出码表（0–14, 130）全部保留。新增：
 - **验收完成（2026-09-24）**：真实发布成功——上传 → 元信息 → 话题 → 声明核对 → 提交，平台跳转确认（post/list）。提交成功判定 = 发表后页面跳转（校准自 frankwei2019/auto-weixin-video）；发表按钮禁用态等待已加。
 - 待办：README / agent-guide 按新定位重写（随下个 Release）。
 
-### M3 — 自愈：Jev recovery + LLM fallback
+### M3 — 自愈：恢复层 + 补丁机制（第一刀 ✅ 2026-09-24）
 
-- page_state 快照；Jev 恢复层（action + element 选择）；LLM 兜底；
-- 恢复轨迹入 history.db；selector 补丁缓存（可选）。
-- **前置**：Jev 形态技术选型（本地模型 / 规则引擎 / 外部进程）。
+- **补丁机制**：`~/.sph/patches/publish.json` 覆盖 selector（只列改动的字段；未知字段名/坏 JSON 响亮报错）——修复单元从"改源码发版"变成"运行时 JSON"，M2 校准经验直接沉淀为能力；
+- **page_state 快照**：全根（wujie shadow + 主文档）可交互元素蒸馏清单（带序号，browser-use 式）+ URL + stage + 失败 selector；
+- **现场保存**：失败时 `~/.sph/crashes/<ts>/{snapshot.json,page.txt,screenshot.png}`；
+- **RecoveryBackend 接口**：`recover(snapshot) -> Option<RecoveryAction{Click/Type/Wait}>`；默认 NullBackend（人工终态）；Jev/本地模型/远程 LLM 实现同一 trait 即可接入——运行时永远确定性，模型只产出一次结构化动作；
+- **恢复钩子**：流水线每步失败 → 快照 → 现场 → 后端决策 → 执行+重试一次 → 仍失败报 RECOVERY_FAILED(17)；
+- **恢复轨迹**：`~/.sph/history.jsonl` 追加（审计与回归素材；SQLite history.db 推迟到需要查询时）；
+- **实测**：110/110 测试（含失败现场保存 e2e：超时 → crashes 落盘 + 轨迹入 history.jsonl）。
+- 待办：Jev/LLM 后端实现（接口已就绪）；补丁 export/import/report；`sph doctor`。
 
 ### M4 — 规模化：`--at` / `batch` / 多账号
 
