@@ -497,6 +497,22 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn e2e_ai_mark_only() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("aimark");
+        make_session(&config);
+        let work = tempdir("workaimark");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.ai_mark = true;
+        let result = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap();
+        assert!(result.dry_run);
+    }
+
+    #[tokio::test]
     async fn e2e_collection_not_found_is_loud_error() {
         let Some(_chrome) = test_chrome() else {
             eprintln!("skip: no chromium");

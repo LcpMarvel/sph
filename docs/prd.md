@@ -303,7 +303,9 @@ v1 退出码表（0–14, 130）全部保留。新增：
 - 修复 page_state 解析 bug（DISTILL_JS 返回 JSON 字符串未二次解析——现场 URL/元素自 M3 起一直为空，修复后 RuleBackend 首次拿到真实元素）；
 - 修复未登录检测（URL 级 login/passport 判定，会话过期 5 秒内报 15 不再等满超时）；
 - 项目改名 LcpMarvel/sph；README/agent-guide 按 v2 重写；CI 修 Ubuntu chromium snap 空壳问题；
-- 124/124 测试。
+- 124/124 测试；
+- **真实验收（2026-09-25 凌晨）**：`--at` 定时发布全链路真实平台通过（定时 5 小时后，提交+跳转确认）——但暴露并修复两个接线 bug：`--at`/扩展属性的 CLI→Options 赋值与流水线 4.5 步骤当时未真正落盘（python 补丁静默失败，e2e 绕开 CLI 未暴露）；AI 标注（--ai-mark）真实页面下所有合成点击路径（JS 事件序列/CDP trusted 鼠标）均不生效——该控件存在反自动化处理，代码保留（fixture 可过），真实使用暂不支持，留待后续研究（keyboard 交互或 headed 人工）。
+- 125/124→125/125 测试（新增 ai_mark-only e2e）。
 
 - 定时发表（优先平台原生定时入口，不可用时本地调度兜底）；
 - `sph batch <dir>`；多账号登记与 `--account` 切换；

@@ -488,8 +488,8 @@ impl<'a> PublishPage<'a> {
           {ROOTS}
           const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
           for (const sub of __roots) {{
-            for (const el of sub.querySelectorAll('.select-placeholder, span, div, [class*=mark]')) {{
-              if (vis(el) && (el.innerText||'').trim() === {lbl}) {{
+            for (const el of sub.querySelectorAll('.select-placeholder')) {{
+              if (vis(el) && (el.innerText||'').includes({lbl})) {{
                 el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
                 return true;
               }}
@@ -504,8 +504,10 @@ impl<'a> PublishPage<'a> {
         let probe_js = format!(
             r#"(function(){{
           {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
           for (const sub of __roots) {{
             for (const el of sub.querySelectorAll({mark_sel:?})) {{
+              if (!vis(el)) continue;
               const t = (el.innerText||'').trim();
               if (t.includes({kw_json})) {{
                 const cls = (typeof el.className === 'string' ? el.className : '');
@@ -525,8 +527,10 @@ impl<'a> PublishPage<'a> {
         let click_js = format!(
             r#"(function(){{
           {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
           for (const sub of __roots) {{
             for (const el of sub.querySelectorAll({mark_sel:?})) {{
+              if (!vis(el)) continue;
               const t = (el.innerText||'').trim();
               if (t.includes({kw_json})) {{
                 el.scrollIntoView({{block:'center'}});

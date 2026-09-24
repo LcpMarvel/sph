@@ -333,6 +333,30 @@ pub(crate) async fn run_inner_with_backend(
         flow.check_declaration_conservative()
     );
 
+    // 4.5) 定时发表（--at）：声明核对后、dry-run 止步/提交前
+    if let Some(at) = opts.schedule_at {
+        if at <= time::OffsetDateTime::now_utc() {
+            return Err(AppError::new(
+                Code::ScheduleInvalid,
+                Stage::Schedule,
+                "--at 必须是未来的时间",
+            ));
+        }
+        werr(
+            stderr,
+            format_args!(
+                "步骤 4.5/5：设置定时发表（{}）…\n",
+                at.format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default()
+            ),
+        );
+        step!(
+            Stage::Schedule,
+            selectors.schedule_radio_label.as_ref(),
+            flow.set_schedule(at)
+        );
+    }
+
     if opts.dry_run {
         werr(
             stderr,

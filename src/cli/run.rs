@@ -657,7 +657,7 @@ async fn run_publish(
     }
     let video = PathBuf::from(&cmd.positionals[0]);
     let timeout = parse_timeout_flag(cmd, Duration::from_secs(10 * 60))?;
-    let opts = publish::default_options(
+    let mut opts = publish::default_options(
         video,
         cmd.flag("title").unwrap_or("").to_string(),
         cmd.flag("description").unwrap_or("").to_string(),
@@ -673,6 +673,14 @@ async fn run_publish(
         .flag("account")
         .unwrap_or(session::DEFAULT_ACCOUNT)
         .to_string();
+    // --at 定时与扩展属性（CLI → Options 接线）
+    if let Some(raw) = cmd.flag("at") {
+        opts.schedule_at = Some(parse_schedule_at(raw)?);
+    }
+    opts.collection = cmd.flag("collection").map(String::from);
+    opts.link = cmd.flag("link").map(String::from);
+    opts.activity = cmd.flag("activity").map(String::from);
+    opts.ai_mark = cmd.bool_flag("ai-mark");
     publish::validate(&opts)?;
     let result = with_command_timeout(
         timeout,
