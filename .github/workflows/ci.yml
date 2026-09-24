@@ -19,12 +19,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: install chromium (linux)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+        # Ubuntu 24.04 的 apt chromium 是 snap 空壳；直接下载 chrome-for-testing
+        # （与本项目 pin 版本一致，走 npmmirror 镜像）。
+        run: |
+          set -e
+          curl -fsSL -o /tmp/chrome.zip             https://cdn.npmmirror.com/binaries/chrome-for-testing/131.0.6778.204/linux64/chrome-linux64.zip
+          unzip -q /tmp/chrome.zip -d /tmp/chrome-bin
       - name: locate chromium
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
-            echo "SPH_CHROME=$(command -v chromium-browser || command -v chromium)" >> "$GITHUB_ENV"
+            echo "SPH_CHROME=/tmp/chrome-bin/chrome-linux64/chrome" >> "$GITHUB_ENV"
           elif [ "$RUNNER_OS" == "macOS" ]; then
             echo "SPH_CHROME=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" >> "$GITHUB_ENV"
           elif [ "$RUNNER_OS" == "Windows" ]; then

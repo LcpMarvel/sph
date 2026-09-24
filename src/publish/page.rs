@@ -123,8 +123,17 @@ impl<'a> PublishPage<'a> {
         }
     }
 
-    /// 未登录检测（主文档）。
+    /// 未登录检测：URL 落在 login/passport（最稳，平台改版不依赖 DOM）或登录页标志出现。
     pub async fn is_login_page(&self) -> bool {
+        if let Ok(r) = self.page.evaluate("location.href").await {
+            let url = r
+                .value()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default();
+            if url.contains("login") || url.contains("passport") {
+                return true;
+            }
+        }
         self.page
             .find_element(self.selectors.login_indicator.as_ref())
             .await

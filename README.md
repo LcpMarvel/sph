@@ -1,21 +1,24 @@
-# sph — 微信视频号本地下载工具
+# sph — 微信视频号本地自动化工具
 
-[![CI](https://github.com/LcpMarvel/sph-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/LcpMarvel/sph-downloader/actions/workflows/ci.yml)
+[![CI](https://github.com/LcpMarvel/sph/actions/workflows/ci.yml/badge.svg)](https://github.com/LcpMarvel/sph/actions/workflows/ci.yml)
 
-命令行工具：打开专用浏览器登录元宝官网一次，之后用本地凭证把视频号分享链接解析并下载成本地 MP4。单机自用，不部署服务器、不开代理、不装证书。
+单二进制命令行工具：扫码登录一次视频号助手，之后在本机完成**发布、定时发表、批量上架、下载**——所有命令非交互、`--json` 输出、退出码稳定可编程，人和 AI Agent 用同一套接口。
 
+```bash
+sph login                                  # 扫码登录（持久会话，只此一次）
+sph publish ./video.mp4 --title "齿轮是怎么工作的" --tags "机械,科普"
+sph publish ./video.mp4 --title "..." --at "2026-09-25 20:00"   # 定时发表
+sph batch ./videos/                        # 整目录顺序上架（标题取文件名）
+sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4      # 下载
 ```
-sph login                                        # 打开浏览器，扫码，自动保存凭证
-sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4
-```
 
-- `sph login` 全自动：检测到登录成功后自动采集凭证、关闭浏览器并保存，不需要复制 Cookie、不需要输入任何内容。
-- 平时的 `inspect` / `download` 不打开浏览器，适合脚本和 AI Agent 调用。
-- 只下载你本来有权访问和保存的内容。
+- 登录态保存在本机专用浏览器 profile，**后续任何命令不再扫码**。
+- 平时的 publish / download 全部 headless，不弹窗口。
+- 只自动化你本人有权操作的账号；所有操作走真实页面，与人工同路径。
 
 ## 安装
 
-从 [Releases](https://github.com/LcpMarvel/sph-downloader/releases) 下载对应平台的压缩包，解压即用：
+从 [Releases](https://github.com/LcpMarvel/sph/releases) 下载对应平台压缩包，解压即用：
 
 | 文件 | 平台 |
 | --- | --- |
@@ -26,147 +29,114 @@ sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4
 | `sph-windows-amd64.zip` | Windows x64 |
 | `sph-windows-arm64.zip` | Windows ARM64 |
 
-有 Rust 工具链也可以一行安装（装入 `~/.cargo/bin`）：
+有 Rust 工具链也可以源码安装：
 
 ```bash
-cargo install --git https://github.com/LcpMarvel/sph-downloader
+cargo install --git https://github.com/LcpMarvel/sph
 ```
 
-或从源码构建：`cargo build --release`，二进制在 `target/release/sph`
+运行时零外部依赖（`ffprobe` 可选，装了会做完整视频流校验）。优先使用系统 Chrome/Edge；没有时首次运行自动下载专用 Chromium（约 200MB，npmmirror/Google 双源竞速，国内自动走镜像）。
 
-## 环境要求
-
-- macOS / Linux / Windows；`sph login` 需要桌面会话（要弹浏览器扫码）
-- 可选：`ffprobe`（如 `brew install ffmpeg`）——下载后做视频流验证；没有它只做 MP4 容器基础检查
-
-运行时零外部依赖：不需要 Node、不需要预装浏览器。首次 `sph login` 会自动下载一个专用 Chromium（约 200MB，仅一次，之后复用）；下载源为多镜像自动竞速（Google / npmmirror / Playwright CDN 同时探测，国内环境会自动走 npmmirror 镜像，无需配置）。
-
-## 使用
+## 命令一览
 
 ```bash
-# 登录：打开专用浏览器 → 扫码/认证 → 自动保存并关窗
-sph login [--timeout 5m]
+# 账号（两个凭证域，互不混用）
+sph login [--account NAME]              # 视频号助手扫码（持久 profile 会话）
+sph login --yuanbao                     # 元宝登录（下载解析凭证，一次性浏览器）
+sph accounts                            # 双域状态一览
+sph logout [--assistant]                # 清下载凭证 / 助手会话
 
-# 查看本地凭证状态（不联网，不显示任何值）
-sph auth status
+# 发布
+sph publish VIDEO.mp4 --title "标题" [选项]
+    --description "描述"  --tags "机械,科普"  --cover cover.jpg
+    --at "YYYY-MM-DD HH:MM"               # 定时发表（本地时区）
+    --account NAME                        # 多账号
+    --dry-run                             # 走完除提交外全部步骤
+    --headed                              # 可见浏览器（调试）
+    --json                                # 单 JSON 对象输出
 
-# 解析（不下载）
-sph inspect "https://weixin.qq.com/sph/xxxx" [--json]
+# 批量
+sph batch <dir> [--tags "..."] [--dry-run] [--json]
+    # 目录内 .mp4 顺序发布；标题=文件名；同名 .jpg/.jpeg/.png 自动作封面
 
-# 下载
-sph download "https://weixin.qq.com/sph/xxxx"                 # 自动命名: 标题_标识.mp4
-sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4    # 指定路径
-sph download "https://weixin.qq.com/sph/xxxx" -o v.mp4 --overwrite --max-bytes 1073741824
-echo "https://weixin.qq.com/sph/xxxx" | sph download --stdin
+# 下载（v1 能力原样保留）
+sph download "https://weixin.qq.com/sph/xxxx" [-o out.mp4] [--overwrite] [--json]
+sph inspect  "https://weixin.qq.com/sph/xxxx" [--json]
+pbpaste | sph download --stdin
 
-# 登录失效后重新登录（下载过程永远不会自动弹浏览器）
-sph login
-
-# 清除本工具保存的本地凭证（不影响浏览器里的登录）
-sph logout
+# 运维
+sph history [--limit N] [--json]        # 发布/恢复轨迹
+sph doctor [--json]                     # 健康检查（会话/凭证/补丁/浏览器）
+sph patch export [--output F]           # 导出 selector 补丁
+sph patch import <file>                 # 导入补丁（校验字段名）
+sph version / --help
 ```
 
-同目录已有同名文件时默认报 `FILE_EXISTS`（退出码 9），不会覆盖；加 `--overwrite` 才替换。
+## 给脚本 / AI Agent 用
 
-## 给脚本 / AI Agent 用（WorkBuddy、Codex、Claude Code 等）
-
-> Agent 集成的完整机器可读说明（安装命令、调用契约、安全边界）见 **[docs/agent-guide.md](docs/agent-guide.md)**——把这份文件喂给你的 Agent 即可。
-
-除 `login` 外所有命令都是**非交互**的，天然适合 Agent 与脚本调用：
-
-- `--json` 模式下 stdout **恰好一个 JSON 对象**（进度和诊断全在 stderr），可以直接解析；
-- 退出码稳定可编程（见下表），Agent 可以按码决定重试/报错/提示用户重新登录；
-- 失败信息永远是安全的（不含 Cookie、token、签名 URL），可以原样转述给用户。
-
-```bash
-sph inspect  "https://weixin.qq.com/sph/xxxx" --json
-# {"ok":true,"command":"inspect","data":{"local_id":"...","title":"...","author":"...","media_source":"h264VideoInfo","codec_hint":"h264"}}
-
-sph download "https://weixin.qq.com/sph/xxxx" -o out.mp4 --json
-# {"ok":true,"command":"download","data":{"local_id":"...","path":"/abs/out.mp4","bytes":123,"sha256":"...","verification":"ffprobe"}}
-
-# 失败时：
-# {"ok":false,"error":{"code":"AUTH_REQUIRED","stage":"credentials","message":"未找到登录凭证，请执行 sph login 重新登录。","retryable":false}}
-```
-
-错误对象字段：`code`（机器可读错误码）、`stage`（出错阶段：arguments / credentials / parse_share / fetch_feed / select_media / download / verify / commit / login_*）、`message`（安全的中文说明）、`retryable`。
-
-退出码表：
+除 `login`（需扫码）外所有命令**非交互**。`--json` 模式下 stdout 恰好一个 JSON 对象，进度与诊断全在 stderr；退出码稳定可编程：
 
 | 退出码 | 含义 |
 | --- | --- |
 | 0 | 成功 |
-| 1 | INTERNAL_ERROR 未预期内部错误 |
-| 2 | INVALID_ARGUMENT 参数/链接不合法 |
-| 3 | AUTH_REQUIRED / INVALID_CREDENTIALS 缺少凭证或凭证失效（提示重新 login） |
-| 4 | NETWORK_ERROR / TIMEOUT 网络失败或超时 |
-| 5 | UPSTREAM_ERROR / ACCESS_DENIED / RATE_LIMITED 上游业务失败、403、限流 |
-| 6 | VIDEO_UNAVAILABLE / NO_MEDIA 视频不可用或无媒体 |
-| 7 | UNSUPPORTED_MEDIA 图集、HLS/DASH 等不支持形态 |
-| 8 | DOWNLOAD_FAILED / DOWNLOAD_TOO_LARGE 媒体下载失败或超过大小上限 |
-| 9 | FILE_EXISTS / IO_ERROR 目标已存在或写入失败 |
-| 10 | VERIFY_FAILED 容器/ffprobe 验证未通过 |
-| 11 | SCHEMA_CHANGED 上游接口结构变化 |
-| 12 | LOGIN_DEPENDENCY_MISSING / LOGIN_BROWSER_FAILED login 依赖缺失或浏览器失败 |
-| 13 | INTERACTIVE_REQUIRED login 需要真终端 |
-| 14 | LOGIN_CAPTURE_FAILED / AUTH_BUSY 凭证采集失败或凭证修改锁被占用 |
-| 130 | CANCELLED 用户取消 |
-
-注意：`login` 必须由人在真实终端执行（要扫码），Agent 不要尝试自动化它；Agent 所在机器没有凭证时，应提示用户登录或使用下述服务器方式。
-
-## 在服务器上使用（无图形界面）
-
-服务器跑不了 `sph login`（需要可见浏览器和人工扫码）：
-
-1. 在自己的 Mac 上完成 `sph login`；
-2. 把 `~/.config/sph/credentials.json` 拷到服务器的同一路径（或用 `SPH_CONFIG_DIR` 指向所在目录）；
-3. 服务器上只需要 `sph` 一个二进制，直接 `inspect` / `download`。
-
-也可以用故障备用入口直接导入 Cookie：在日常浏览器登录 yuanbao.tencent.com，开发者工具 Network 里找到 `get_parse_result` 请求，复制其完整 Cookie 值：
+| 2 | 参数错误 |
+| 3 | 凭证缺失/失效（重新 login） |
+| 4 / 5 | 网络 / 上游失败 |
+| 9 | 文件已存在 |
+| 15 | 助手会话失效（`sph login` 重新扫码） |
+| 16 | 平台拒绝（审核/校验未过） |
+| 17 | 自动恢复后仍失败（现场已保存） |
+| 18 | 定时参数非法 |
+| 130 | 用户取消 |
 
 ```bash
-pbpaste | sph auth import --stdin
-# 可选：同会话额外请求头（白名单字段，JSON 键值对象）
-pbpaste | sph auth import --stdin --headers-file "$HOME/.config/sph/yuanbao-headers.json"
+sph publish ./v.mp4 --title "..." --json
+# {"ok":true,"command":"publish","data":{"account":"default","video":"...","title":"...","dry_run":false,"submitted":true}}
+
+# 失败时：
+# {"ok":false,"error":{"code":"SESSION_EXPIRED","stage":"navigate","message":"...","retryable":false}}
 ```
 
-凭证文件是 0600 明文 JSON，请按密钥对待，不要提交到仓库或发给任何人（包括 AI）。
+## 自愈与补丁
 
-## 安全与隐私
+发布流程是固定 selector 的确定性流水线，内置 **RuleBackend 自愈**：遇到阻塞对话框（"我知道了/确定/切换"等）自动点掉、页面未加载完自动等待重试；恢复全程留痕（`sph history`），失败现场（页面快照 + 截图）保存在 `~/.sph/crashes/`。
 
-- 凭证只存在 `~/.config/sph/credentials.json`（目录 0700、文件 0600、原子写入），不上传任何地方。
-- 元宝 Cookie/会话头只发给元宝解析端点；视频号预览与媒体服务器收不到任何会话信息。
-- 输出（含 JSON、日志）不含 Cookie、token、带签名的媒体 URL；媒体 URL 原样使用不改签名参数。
-- 下载为单连接流式写入，默认上限 2 GiB，临时文件在验证通过后才原子提交。
-- `login` 每次用一次性私有浏览器 profile，结束即删除，不碰日常浏览器。
-- 客户端直连（忽略代理环境变量），拒绝回环/私网地址。
+页面改版导致 selector 失效时，**不用等发版**——写补丁即可：
 
-## 常见问题
+```json
+// ~/.sph/patches/publish.json
+{ "selectors": { "title_input": "input[placeholder*='新标题']" } }
+```
 
-- `LOGIN_BROWSER_FAILED`：登录浏览器启动失败；首次使用需要联网下载浏览器，检查网络后重试。
-- `INTERACTIVE_REQUIRED`：login 必须在真终端运行。
-- `INVALID_CREDENTIALS`：凭证失效，重新 `sph login`。
-- `VERIFY_FAILED`：文件容器/ffprobe 检查未过——可能截断、接口变化或该视频需要本工具未实现的解码。
-- 下载中想中断：Ctrl+C，不会留下伪完成文件。
+`sph patch import/export` 可分享补丁；坏补丁（JSON 损坏、字段名拼错）会被响亮拒绝。
+
+## 数据与安全
+
+- 一切状态在 `~/.sph/`（`$SPH_CONFIG_DIR` 可覆盖）：账号 profile、补丁、轨迹、崩溃现场。local-first，无服务端。
+- 助手会话 = 持久 Chromium profile 本身，**不采集/存储任何 cookie**；下载凭证单独存放（0600、原子写入、flock 保护）。
+- 输出（含 JSON、错误、轨迹）不含 cookie/token/签名 URL；错误信息经消毒，可原样转述。
+- 声明类选项默认保守（不勾原创）；平台默认勾选原创时会响亮报错交人工确认。
+- 下载走元宝解析链 + 直连下载（快速稳定），与助手会话两个凭证域独立。
 
 ## 卸载
 
-`sph logout` 清除凭证后删除项目目录即可。强杀进程可能残留 `~/.config/sph/.login-*` 目录，按提示路径手动删除。
+```bash
+sph logout --assistant && sph logout
+rm -rf ~/.sph
+```
 
 ## 开发
 
 ```bash
-make build     # cargo build --release
-make test      # cargo test
-make check     # cargo fmt --check + cargo clippy
+make build    # cargo build --release
+make test     # cargo test（含真实 Chromium fixture e2e）
+make check    # fmt + clippy
 ```
 
-发布新版本：推送 `v*` 标签即可触发构建并发布 Release（六个平台产物 + SHA-256 校验和）：
+发布新版本：推送 `v*` 标签触发六平台 Release：
 
 ```bash
-git tag v1.0.1 && git push origin v1.0.1
+git tag v2.0.0 && git push origin v2.0.0
 ```
 
-结构：`src/main.rs` 入口；`src/cli` 参数与输出契约；`src/auth.rs` 凭证存取与锁；`src/login` 登录编排（chromiumoxide 驱动专用浏览器 + Cookie 观察状态机）；`src/upstream.rs` 两步解析链；`src/netpolicy.rs` 网络边界；`src/download.rs` 流式下载与原子提交；`src/verify.rs` 容器与 ffprobe 检查。
-
-依赖：Rust（tokio / reqwest+rustls / serde 等）+ [chromiumoxide](https://github.com/mattsse/chromiumoxide)（MIT/Apache-2.0，CDP 浏览器自动化）。
+结构：`src/session`（账号会话）、`src/publish`（发布流水线 + 恢复层 + 补丁）、`src/download` / `src/upstream`（下载链）、`src/browser`（CDP 运行时 + 页面快照）、`src/cli`（命令面与输出契约）。浏览器自动化基于 [chromiumoxide](https://github.com/mattsse/chromiumoxide)（CDP 直连，tokio）。
