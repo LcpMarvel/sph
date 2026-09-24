@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>publish-fixture</title>
+<!-- 视频号助手发布流程的最小仿真（离线回归 fixture）。
+     结构对齐真实平台的两段式：主页(.brand-name + 发表视频按钮) → 点击后进入创建表单。
+     选择器与 DEFAULT_SELECTORS 对齐。 -->
+<style>[hidden]{display:none!important}</style>
+<div id="home">
+  <div class="brand-name">视频号 · 助手（fixture）</div>
+  <button id="entry" type="button">发表视频</button>
+</div>
+<div id="create" hidden>
+  <input type="file" id="video-file" accept="video/mp4">
+  <input class="weui-desktop-form__input" placeholder="填写短标题有机会获得更多流量">
+  <div class="input-editor" contenteditable="true"></div>
+  <div class="tag-inner">#话题</div>
+  <div class="topic-dialog" hidden>
+    <input type="text" class="topic-search" placeholder="搜索话题">
+    <ul>
+      <li>机械科普</li>
+      <li>科普知识</li>
+    </ul>
+  </div>
+  <input type="file" id="cover-file" accept="image/jpeg">
+  <div class="cover-preview-wrap" hidden>封面预览</div>
+  <input type="checkbox" class="ant-checkbox-input" id="original-checkbox">
+  <button id="submit-btn" type="button">发表</button>
+  <div id="result" data-value="">未提交</div>
+  <div class="publish-error" hidden></div>
+</div>
+<script>
+document.getElementById('entry').addEventListener('click', function () {
+  document.getElementById('home').hidden = true;
+  document.getElementById('create').hidden = false;
+});
+// 选择视频后进入处理态，短暂延迟后封面就绪（模拟平台截帧完成）
+document.getElementById('video-file').addEventListener('change', function () {
+  if (!this.files.length) return;
+  setTimeout(function () {
+    document.querySelector(".cover-preview-wrap").hidden = false;
+  }, 60);
+});
+document.getElementById('cover-file').addEventListener('change', function () {
+  if (!this.files.length) return;
+});
+document.getElementById('submit-btn').addEventListener('click', function () {
+  if (!document.querySelector(".cover-preview-wrap").hidden) {
+    document.getElementById('result').dataset.value = 'published';
+    history.pushState(null, '', '#post/list');
+  }
+});
+// 输入痕迹（供断言）
+document.querySelector('.tag-inner').addEventListener('click', function () {
+  document.querySelector('.topic-dialog').hidden = false;
+});
+document.querySelector('[placeholder*="短标题"]').addEventListener('input', function () {
+  this.setAttribute('data-value', this.value);
+});
+</script>

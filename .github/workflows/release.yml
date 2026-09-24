@@ -9,51 +9,98 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            pkg: zip
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            pkg: zip
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            pkg: tar
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            pkg: tar
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            pkg: zip
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            pkg: zip
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Build all targets
-        run: |
-          set -e
-          mkdir -p dist release
-          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
-            GOOS=${t%/*}
-            GOARCH=${t#*/}
-            ext=""
-            if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH \
-              go build -trimpath \
-              -ldflags "-s -w -X github.com/LcpMarvel/sph-downloader/internal/cli.Version=${GITHUB_REF_NAME#v}" \
-              -o "dist/sph-${GOOS}-${GOARCH}${ext}" ./cmd/sph
-          done
+      - name: install cross linker (aarch64-linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Package
+      - name: build
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          SPH_VERSION: ${{ github.ref_name }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      # 产物命名沿用 v1 的发布物惯例：sph-<os>-<arch>[.zip|.tar.gz]
+      - name: name mapping
+        id: name
         run: |
-          set -e
-          cd dist
-          for f in sph-darwin-*; do
-            [ -e "$f" ] || continue
-            zip -q "../release/${f}.zip" "$f"
-          done
-          # windows archives drop the .exe from the ARCHIVE name;
-          # the binary inside keeps it
-          for f in sph-windows-*; do
-            [ -e "$f" ] || continue
-            zip -q "../release/${f%.exe}.zip" "$f"
-          done
-          for f in sph-linux-*; do
-            [ -e "$f" ] || continue
-            tar czf "../release/${f}.tar.gz" "$f"
-          done
-          cd ../release
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin) echo "artifact=sph-darwin-arm64" >> "$GITHUB_OUTPUT" ;;
+            x86_64-apple-darwin)  echo "artifact=sph-darwin-amd64" >> "$GITHUB_OUTPUT" ;;
+            x86_64-unknown-linux-gnu)  echo "artifact=sph-linux-amd64" >> "$GITHUB_OUTPUT" ;;
+            aarch64-unknown-linux-gnu) echo "artifact=sph-linux-arm64" >> "$GITHUB_OUTPUT" ;;
+            x86_64-pc-windows-msvc)   echo "artifact=sph-windows-amd64" >> "$GITHUB_OUTPUT" ;;
+            aarch64-pc-windows-msvc)  echo "artifact=sph-windows-arm64" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: package (unix)
+        if: matrix.pkg == 'tar'
+        run: |
+          mkdir -p release
+          cp "target/${{ matrix.target }}/release/sph" "sph-${{ matrix.target }}"
+          # 发布物沿用 v1 命名：sph-linux-amd64.tar.gz
+          tar czf "release/${{ steps.name.outputs.artifact }}.tar.gz" "sph-${{ matrix.target }}"
+
+      - name: package (zip)
+        if: matrix.pkg == 'zip'
+        shell: bash
+        run: |
+          mkdir -p release
+          ext=""
+          if [[ "${{ matrix.target }}" == *windows* ]]; then ext=".exe"; fi
+          cp "target/${{ matrix.target }}/release/sph${ext}" "sph-${{ matrix.target }}${ext}"
+          zip -q "release/${{ steps.name.outputs.artifact }}.zip" "sph-${{ matrix.target }}${ext}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: checksums
+        run: |
+          cd release
           shasum -a 256 * > checksums.txt
           ls -la
 
-      - name: Create release
+      - name: create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -71,4 +118,4 @@ jobs:
           | sph-windows-amd64.zip | Windows x64 |
           | sph-windows-arm64.zip | Windows ARM64 |
 
-          首次使用：\`sph login\` 会自动下载专用浏览器（约 200MB，仅一次）。"
+          首次使用：\`sph login\` 会自动下载专用浏览器（约 200MB，仅一次，多镜像竞速）。"

@@ -26,13 +26,13 @@ sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4
 | `sph-windows-amd64.zip` | Windows x64 |
 | `sph-windows-arm64.zip` | Windows ARM64 |
 
-有 Go 环境（≥ 1.23）也可以一行安装：
+有 Rust 工具链也可以一行安装（装入 `~/.cargo/bin`）：
 
 ```bash
-go install github.com/LcpMarvel/sph-downloader/cmd/sph@latest
+cargo install --git https://github.com/LcpMarvel/sph-downloader
 ```
 
-或从源码构建：`go build -o bin/sph ./cmd/sph`
+或从源码构建：`cargo build --release`，二进制在 `target/release/sph`
 
 ## 环境要求
 
@@ -45,25 +45,25 @@ go install github.com/LcpMarvel/sph-downloader/cmd/sph@latest
 
 ```bash
 # 登录：打开专用浏览器 → 扫码/认证 → 自动保存并关窗
-./bin/sph login [--timeout 5m]
+sph login [--timeout 5m]
 
 # 查看本地凭证状态（不联网，不显示任何值）
-./bin/sph auth status
+sph auth status
 
 # 解析（不下载）
-./bin/sph inspect "https://weixin.qq.com/sph/xxxx" [--json]
+sph inspect "https://weixin.qq.com/sph/xxxx" [--json]
 
 # 下载
-./bin/sph download "https://weixin.qq.com/sph/xxxx"                 # 自动命名: 标题_标识.mp4
-./bin/sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4    # 指定路径
-./bin/sph download "https://weixin.qq.com/sph/xxxx" -o v.mp4 --overwrite --max-bytes 1073741824
-echo "https://weixin.qq.com/sph/xxxx" | ./bin/sph download --stdin
+sph download "https://weixin.qq.com/sph/xxxx"                 # 自动命名: 标题_标识.mp4
+sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4    # 指定路径
+sph download "https://weixin.qq.com/sph/xxxx" -o v.mp4 --overwrite --max-bytes 1073741824
+echo "https://weixin.qq.com/sph/xxxx" | sph download --stdin
 
 # 登录失效后重新登录（下载过程永远不会自动弹浏览器）
-./bin/sph login
+sph login
 
 # 清除本工具保存的本地凭证（不影响浏览器里的登录）
-./bin/sph logout
+sph logout
 ```
 
 同目录已有同名文件时默认报 `FILE_EXISTS`（退出码 9），不会覆盖；加 `--overwrite` 才替换。
@@ -120,14 +120,14 @@ sph download "https://weixin.qq.com/sph/xxxx" -o out.mp4 --json
 
 1. 在自己的 Mac 上完成 `sph login`；
 2. 把 `~/.config/sph/credentials.json` 拷到服务器的同一路径（或用 `SPH_CONFIG_DIR` 指向所在目录）；
-3. 服务器上只需要 `bin/sph` 一个二进制，直接 `inspect` / `download`。
+3. 服务器上只需要 `sph` 一个二进制，直接 `inspect` / `download`。
 
 也可以用故障备用入口直接导入 Cookie：在日常浏览器登录 yuanbao.tencent.com，开发者工具 Network 里找到 `get_parse_result` 请求，复制其完整 Cookie 值：
 
 ```bash
-pbpaste | ./bin/sph auth import --stdin
+pbpaste | sph auth import --stdin
 # 可选：同会话额外请求头（白名单字段，JSON 键值对象）
-pbpaste | ./bin/sph auth import --stdin --headers-file "$HOME/.config/sph/yuanbao-headers.json"
+pbpaste | sph auth import --stdin --headers-file "$HOME/.config/sph/yuanbao-headers.json"
 ```
 
 凭证文件是 0600 明文 JSON，请按密钥对待，不要提交到仓库或发给任何人（包括 AI）。
@@ -139,7 +139,7 @@ pbpaste | ./bin/sph auth import --stdin --headers-file "$HOME/.config/sph/yuanba
 - 输出（含 JSON、日志）不含 Cookie、token、带签名的媒体 URL；媒体 URL 原样使用不改签名参数。
 - 下载为单连接流式写入，默认上限 2 GiB，临时文件在验证通过后才原子提交。
 - `login` 每次用一次性私有浏览器 profile，结束即删除，不碰日常浏览器。
-- Go 客户端直连（忽略代理环境变量），拒绝回环/私网地址。
+- 客户端直连（忽略代理环境变量），拒绝回环/私网地址。
 
 ## 常见问题
 
@@ -151,15 +151,14 @@ pbpaste | ./bin/sph auth import --stdin --headers-file "$HOME/.config/sph/yuanba
 
 ## 卸载
 
-`./bin/sph logout` 清除凭证后删除项目目录即可。强杀进程可能残留 `~/.config/sph/.login-*` 目录，按提示路径手动删除。
+`sph logout` 清除凭证后删除项目目录即可。强杀进程可能残留 `~/.config/sph/.login-*` 目录，按提示路径手动删除。
 
 ## 开发
 
 ```bash
-make build     # go build -o bin/sph ./cmd/sph
-make test      # go test ./...
-make check     # gofmt 检查 + go vet
-make race      # go test -race ./...
+make build     # cargo build --release
+make test      # cargo test
+make check     # cargo fmt --check + cargo clippy
 ```
 
 发布新版本：推送 `v*` 标签即可触发构建并发布 Release（六个平台产物 + SHA-256 校验和）：
@@ -168,6 +167,6 @@ make race      # go test -race ./...
 git tag v1.0.1 && git push origin v1.0.1
 ```
 
-结构：`cmd/sph` 入口；`internal/cli` 参数与输出契约；`internal/auth` 凭证存取与锁；`internal/login` 登录编排（go-rod 驱动专用浏览器 + Cookie 观察状态机）；`internal/upstream` 两步解析链；`internal/netpolicy` 网络边界；`internal/download` 流式下载与原子提交；`internal/verify` 容器与 ffprobe 检查。
+结构：`src/main.rs` 入口；`src/cli` 参数与输出契约；`src/auth.rs` 凭证存取与锁；`src/login` 登录编排（chromiumoxide 驱动专用浏览器 + Cookie 观察状态机）；`src/upstream.rs` 两步解析链；`src/netpolicy.rs` 网络边界；`src/download.rs` 流式下载与原子提交；`src/verify.rs` 容器与 ffprobe 检查。
 
-依赖：Go 标准库 + [go-rod/rod](https://github.com/go-rod/rod)（MIT，浏览器自动化）。
+依赖：Rust（tokio / reqwest+rustls / serde 等）+ [chromiumoxide](https://github.com/mattsse/chromiumoxide)（MIT/Apache-2.0，CDP 浏览器自动化）。

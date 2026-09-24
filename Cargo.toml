@@ -1,0 +1,36 @@
+[workspace]
+members = ["."]
+
+[workspace.package]
+version = "2.0.0-dev"
+edition = "2021"
+license = "MIT"
+
+[package]
+name = "sph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "signal", "fs", "io-util", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+url = "2"
+futures = "0.3"
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+fs4 = "0.12"
+rand = "0.8"
+chromiumoxide = "0.9"
+async-trait = "0.1"
+hyper = "1"
+tokio-util = { version = "0.7", features = ["io"] }
+scopeguard = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

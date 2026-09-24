@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>reject-fixture</title>
+<style>[hidden]{display:none!important}</style>
+<div id="home">
+  <div class="brand-name">视频号 · 助手</div>
+  <button type="button">发表视频</button>
+</div>
+<div id="create" hidden>
+  <input type="file" id="video-file" accept="video/mp4">
+  <div class="cover-preview-wrap">封面预览</div>
+  <input class="weui-desktop-form__input" placeholder="填写短标题有机会获得更多流量">
+  <div class="input-editor" contenteditable="true"></div>
+  <div class="tag-inner">#话题</div>
+  <div class="topic-dialog" hidden>
+    <input type="text" class="topic-search" placeholder="搜索话题">
+    <ul><li>机械科普</li><li>科普知识</li></ul>
+  </div>
+  <input type="checkbox" class="ant-checkbox-input">
+  <button type="button">发表</button>
+  <div class="publish-error" hidden></div>
+</div>
+<script>
+document.getElementById('home').querySelector('button').addEventListener('click', function () {
+  document.getElementById('home').hidden = true;
+  document.getElementById('create').hidden = false;
+});
+document.querySelector('.tag-inner').addEventListener('click', function () {
+  document.querySelector('.topic-dialog').hidden = false;
+});
+document.querySelector('#create button').addEventListener('click', function () {
+  var err = document.querySelector('.publish-error');
+  err.hidden = false;
+  err.textContent = '内容审核未通过：包含违规信息 <b>bad</b>';
+});
+</script>

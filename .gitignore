@@ -14,3 +14,10 @@ yuanbao-headers.json
 
 # 系统
 .DS_Store
+
+# Rust
+target/
+spikes/*/out/
+
+# 本地环境（可能含密钥，永不提交）
+.env

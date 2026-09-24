@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   push:
@@ -7,26 +7,57 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-      - run: go vet ./...
-      - run: go test ./...
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: install chromium (linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+      - name: locate chromium
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            echo "SPH_CHROME=$(command -v chromium-browser || command -v chromium)" >> "$GITHUB_ENV"
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            echo "SPH_CHROME=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" >> "$GITHUB_ENV"
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            echo "SPH_CHROME=C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" >> "$GITHUB_ENV"
+          fi
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
 
-  build:
+  cross-compile:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [darwin/arm64, darwin/amd64, linux/amd64, linux/arm64, windows/amd64, windows/arm64]
+        target:
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-      - name: Cross-compile
-        run: |
-          t='${{ matrix.target }}'
-          CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build ./...
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: install cross linker (aarch64-linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: build
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc

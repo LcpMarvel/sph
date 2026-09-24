@@ -1,19 +1,16 @@
-BIN := bin/sph
+BIN := target/release/sph
 
-.PHONY: build test race check clean
+.PHONY: build test check clean
 
 build:
-	go build -o $(BIN) ./cmd/sph
+	cargo build --release
 
 test:
-	go test ./...
-
-race:
-	go test -race ./...
+	cargo test
 
 check:
-	gofmt -l cmd internal
-	go vet ./...
+	cargo fmt --check
+	cargo clippy --all-targets
 
 clean:
-	rm -rf $(BIN)
+	rm -rf target $(BIN)
