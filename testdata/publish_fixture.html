@@ -27,7 +27,7 @@
   <div class="form-item">
     <div class="label">添加到合集</div>
     <div class="select-placeholder">选择合集</div>
-    <div class="options" hidden><div class="opt">机械系列</div><div class="opt">儿童科普</div></div>
+    <div class="options" hidden><div class="opt"><span>机械系列</span><span>共0个内容</span></div><div class="opt">儿童科普</div></div>
   </div>
   <div class="form-item">
     <div class="label">链接</div>
@@ -97,7 +97,8 @@ document.querySelectorAll('.select-placeholder').forEach(function (ph) {
 document.querySelectorAll('.options .opt').forEach(function (opt) {
   opt.addEventListener('click', function () {
     var item = opt.closest('.form-item');
-    item.querySelector('.select-placeholder').innerText = opt.innerText;
+    if (location.search.includes('collectionNoop=1') && (item.querySelector('.label').innerText || '').trim() === '添加到合集') return;
+    item.querySelector('.select-placeholder').innerText = (opt.querySelector('span') || opt).innerText;
     item.querySelector('.options').hidden = true;
   });
 });
@@ -116,6 +117,9 @@ document.querySelectorAll('.weui-desktop-form__check-content').forEach(function 
   if ((sp.innerText || '').trim() === '定时') {
     sp.addEventListener('click', function () {
       document.querySelector('.schedule-panel').hidden = false;
+      if (location.search.includes('collectionResetOnSchedule=1')) {
+        document.querySelector('.form-item .select-placeholder').innerText = '选择合集';
+      }
     });
   }
 });

@@ -357,6 +357,38 @@ pub(crate) async fn run_inner_with_backend(
         );
     }
 
+    // 定时/声明等后续控件可能重渲染表单。提交前再次确认扩展属性仍在表单里，
+    // 不把“点过下拉选项”误当成当前表单已选中。
+    if let Some(collection) = &opts.collection {
+        step!(
+            Stage::Metadata,
+            selectors.collection_label.as_ref(),
+            flow.assert_dropdown_option(
+                selectors.collection_label.as_ref(),
+                collection,
+                Stage::Metadata
+            )
+        );
+    }
+    if let Some(link) = &opts.link {
+        step!(
+            Stage::Metadata,
+            selectors.link_label.as_ref(),
+            flow.assert_dropdown_option(selectors.link_label.as_ref(), link, Stage::Metadata)
+        );
+    }
+    if let Some(activity) = &opts.activity {
+        step!(
+            Stage::Metadata,
+            selectors.activity_label.as_ref(),
+            flow.assert_dropdown_option(
+                selectors.activity_label.as_ref(),
+                activity,
+                Stage::Metadata
+            )
+        );
+    }
+
     if opts.dry_run {
         werr(
             stderr,

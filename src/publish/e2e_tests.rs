@@ -528,4 +528,45 @@ pub(crate) mod tests {
         assert_eq!(err.code, Code::SchemaChanged, "err: {err}");
         assert!(err.message.contains("不存在的合集"), "err: {err}");
     }
+
+    #[tokio::test]
+    async fn e2e_collection_click_without_selection_stops_before_submit() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("collection-noop");
+        make_session(&config);
+        let work = tempdir("collection-noop-video");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, false);
+        opts.navigate_url = Some(format!("{}?collectionNoop=1", fixture_url(FIXTURE_PUBLISH)));
+        opts.collection = Some("机械系列".to_string());
+        let err = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap_err();
+        assert_eq!(err.code, Code::SchemaChanged, "err: {err}");
+        assert!(err.message.contains("未回填"), "err: {err}");
+    }
+
+    #[tokio::test]
+    async fn e2e_collection_reset_by_schedule_stops_before_submit() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("collection-reset");
+        make_session(&config);
+        let work = tempdir("collection-reset-video");
+        let video = test_video_file(&work);
+        let (mut opts, _stderr) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.navigate_url = Some(format!(
+            "{}?collectionResetOnSchedule=1",
+            fixture_url(FIXTURE_PUBLISH)
+        ));
+        opts.collection = Some("机械系列".to_string());
+        opts.schedule_at =
+            Some(time::OffsetDateTime::now_local().unwrap() + Duration::from_secs(7200));
+        let err = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap_err();
+        assert_eq!(err.code, Code::SchemaChanged, "err: {err}");
+        assert!(err.message.contains("提交前"), "err: {err}");
+    }
 }

@@ -458,7 +458,8 @@ impl<'a> PublishPage<'a> {
         }
         self.real_click_coords(&coords, stage).await?;
         tokio::time::sleep(Duration::from_millis(800)).await;
-        // 2) 弹层里找选项（精确文案优先，其次包含），同样取坐标后真实点击
+        // 2) 在选项文案本身点击。外层 [class*=item] 可能是整块表单，
+        //    其 innerText 包含合集名，点它的中心却不会选择任何合集。
         let opt = serde_json::to_string(option).unwrap_or_default();
         let pick_js = format!(
             r#"(function(){{
@@ -468,19 +469,19 @@ impl<'a> PublishPage<'a> {
             const r = el.getBoundingClientRect();
             return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
           }};
+          let best = null;
           for (const sub of __roots) {{
-            for (const el of sub.querySelectorAll('li, [class*=option], [class*=item], .weui-desktop-select__option')) {{
+            for (const el of sub.querySelectorAll('li, [role=option], [class*=option], [class*=item], div, span')) {{
               if (!vis(el)) continue;
-              if ((el.innerText||'').trim() === {opt}) {{ return center(el); }}
+              const t = (el.innerText||'').trim();
+              if (t !== {opt} && !t.startsWith({opt} + ' ') && !t.startsWith({opt} + '\n')) continue;
+              const r = el.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) continue;
+              const score = (t === {opt} ? 0 : 1) * 1e9 + r.width * r.height;
+              if (!best || score < best.score) best = {{el, score}};
             }}
           }}
-          for (const sub of __roots) {{
-            for (const el of sub.querySelectorAll('li, [class*=option], [class*=item]')) {{
-              if (!vis(el)) continue;
-              if ((el.innerText||'').trim().includes({opt})) {{ return center(el); }}
-            }}
-          }}
-          return '';
+          return best ? center(best.el) : '';
         }})()"#
         );
         let picked = self.run_js(&pick_js, stage).await?.unwrap_or_default();
@@ -494,8 +495,63 @@ impl<'a> PublishPage<'a> {
             ));
         }
         self.real_click_coords(&picked, stage).await?;
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        Ok(())
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if self.dropdown_has_option(label, option, stage).await? {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(AppError::fmt(
+                    Code::SchemaChanged,
+                    stage,
+                    format_args!("下拉「{label}」点击「{option}」后未回填到表单，停止提交"),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// 只读取表单触发区的值，不把展开菜单里的选项文案误认为已选择。
+    pub async fn assert_dropdown_option(
+        &self,
+        label: &str,
+        option: &str,
+        stage: Stage,
+    ) -> Result<()> {
+        if self.dropdown_has_option(label, option, stage).await? {
+            Ok(())
+        } else {
+            Err(AppError::fmt(
+                Code::SchemaChanged,
+                stage,
+                format_args!("下拉「{label}」在提交前不再显示「{option}」，停止提交"),
+            ))
+        }
+    }
+
+    async fn dropdown_has_option(&self, label: &str, option: &str, stage: Stage) -> Result<bool> {
+        let lbl = serde_json::to_string(label).unwrap_or_default();
+        let opt = serde_json::to_string(option).unwrap_or_default();
+        let js = format!(
+            r#"(function(){{
+          {ROOTS}
+          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          for (const sub of __roots) {{
+            for (const lab of sub.querySelectorAll('.label, div, span')) {{
+              if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
+              const item = lab.closest('.form-item, [class*=form__item], [class*=form-item]') || lab.parentElement;
+              if (!item) continue;
+              for (const field of item.querySelectorAll('.select-placeholder, [role=combobox], [class*=select__value], [class*=select-value], input')) {{
+                if (!vis(field)) continue;
+                const value = (field.value || field.innerText || '').trim();
+                if (value === {opt} || value.startsWith({opt} + ' ') || value.startsWith({opt} + '\n')) return true;
+              }}
+            }}
+          }}
+          return false;
+        }})()"#
+        );
+        Ok(self.run_js(&js, stage).await?.as_deref() == Some("true"))
     }
 
     /// 在 "x,y"（视口 CSS 像素）坐标处做一次 CDP 真实点击。
