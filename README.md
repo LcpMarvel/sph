@@ -16,6 +16,25 @@ sph download "https://weixin.qq.com/sph/xxxx" -o video.mp4      # 下载
 - 平时的 publish / download 全部 headless，不弹窗口。
 - 只自动化你本人有权操作的账号；所有操作走真实页面，与人工同路径。
 
+## 在 Claude Code / Codex 中使用（Skill）
+
+sph 自带 Agent Skill，装上后 Claude Code、Codex 等 AI 编程工具即可直接调用——说一句"把这个视频发到视频号"就能完成发布。
+
+**任意 Agent（一条命令）**：通过 [skills CLI](https://github.com/vercel-labs/skills)，自动识别本机已装的 Agent（Claude Code、Codex、Cursor 等 90+）并装到各自目录：
+
+```bash
+npx skills add LcpMarvel/sph
+```
+
+**Claude Code** 也可以装插件（带命名空间与版本管理）：
+
+```
+/plugin marketplace add LcpMarvel/sph
+/plugin install sph@sph
+```
+
+**手动**：把 `skills/sph/` 拷到对应 skills 目录（Codex 用 `~/.codex/skills/`，多 Agent 共享用 `~/.agents/skills/`）。不支持 skill 的 Agent 按 [docs/agent-guide.md](docs/agent-guide.md) 接入。
+
 ## 安装
 
 从 [Releases](https://github.com/LcpMarvel/sph/releases) 下载对应平台压缩包，解压即用：
@@ -76,20 +95,7 @@ sph version / --help
 
 ## 给脚本 / AI Agent 用
 
-**任意 Agent（一条命令）**：通过 [skills CLI](https://github.com/vercel-labs/skills)，自动识别本机已装的 Agent（Claude Code、Codex、Cursor 等 90+）并装到各自目录：
-
-```bash
-npx skills add LcpMarvel/sph
-```
-
-**Claude Code** 也可以装插件（带命名空间与版本管理）：
-
-```
-/plugin marketplace add LcpMarvel/sph
-/plugin install sph@sph
-```
-
-**手动**：把 `skills/sph/` 拷到对应 skills 目录（Codex 用 `~/.codex/skills/`，多 Agent 共享用 `~/.agents/skills/`）。不支持 skill 的 Agent 按 [docs/agent-guide.md](docs/agent-guide.md) 接入。调用契约：除 `login`（需扫码）外所有命令**非交互**。`--json` 模式下 stdout 恰好一个 JSON 对象，进度与诊断全在 stderr；退出码稳定可编程：
+调用契约：除 `login`（需扫码）外所有命令**非交互**。`--json` 模式下 stdout 恰好一个 JSON 对象，进度与诊断全在 stderr；退出码稳定可编程：
 
 | 退出码 | 含义 |
 | --- | --- |
