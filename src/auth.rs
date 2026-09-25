@@ -429,26 +429,24 @@ impl Store {
         let tmp_name = format!(".credentials-{:016x}.tmp", rand_u64());
         let tmp_path = self.dir.join(&tmp_name);
         let write_result = (|| -> Result<()> {
-            fs::write(&tmp_path, raw.as_bytes()).map_err(|e| {
+            // 用写句柄完成写入与 fsync：Windows 上只读句柄 sync 报 Access denied。
+            let mut f = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp_path)
+                .map_err(|e| {
+                    AppError::fmt(
+                        Code::IOError,
+                        Stage::Credentials,
+                        format_args!("无法创建临时凭证文件: {e}"),
+                    )
+                })?;
+            use std::io::Write as _;
+            f.write_all(raw.as_bytes()).map_err(|e| {
                 AppError::fmt(
                     Code::IOError,
                     Stage::Credentials,
                     format_args!("写入凭证失败: {e}"),
-                )
-            })?;
-            #[cfg(unix)]
-            fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600)).map_err(|e| {
-                AppError::fmt(
-                    Code::IOError,
-                    Stage::Credentials,
-                    format_args!("无法设置临时凭证文件权限: {e}"),
-                )
-            })?;
-            let f = fs::File::open(&tmp_path).map_err(|e| {
-                AppError::fmt(
-                    Code::IOError,
-                    Stage::Credentials,
-                    format_args!("无法打开临时凭证文件: {e}"),
                 )
             })?;
             f.sync_all().map_err(|e| {
@@ -456,6 +454,15 @@ impl Store {
                     Code::IOError,
                     Stage::Credentials,
                     format_args!("同步凭证失败: {e}"),
+                )
+            })?;
+            drop(f); // rename 前必须关闭句柄（Windows 不允许句柄开着被重命名）
+            #[cfg(unix)]
+            fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600)).map_err(|e| {
+                AppError::fmt(
+                    Code::IOError,
+                    Stage::Credentials,
+                    format_args!("无法设置临时凭证文件权限: {e}"),
                 )
             })?;
             Ok(())
@@ -509,7 +516,6 @@ impl Store {
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
             .open(self.lock_path())
             .map_err(|e| {
                 AppError::fmt(
