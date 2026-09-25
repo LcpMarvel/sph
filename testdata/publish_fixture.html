@@ -101,12 +101,13 @@ document.querySelectorAll('.options .opt').forEach(function (opt) {
     item.querySelector('.options').hidden = true;
   });
 });
-// 视频标注：div 模拟 checkbox，完整 mouse 事件后加 is-selected
+// 视频标注：与真实页一致，点一次选中，再点一次取消。
 document.querySelector('.mark-placeholder').addEventListener('click', function () {
   document.querySelector('.mark-options').hidden = false;
 });
-document.querySelector('.mark-tag-option').addEventListener('click', function () {
-  this.classList.add('is-selected');
+document.querySelector('.mark-tag-option').addEventListener('click', function (e) {
+  e.stopPropagation();
+  this.classList.toggle('is-selected');
 });
 // 定时：点"定时"radio 显示面板；点日期 input 弹 picker；点日期回填
 document.querySelectorAll('.weui-desktop-form__check-content').forEach(function (sp) {

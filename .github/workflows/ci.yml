@@ -23,7 +23,8 @@ jobs:
         # （与本项目 pin 版本一致，走 npmmirror 镜像）。
         run: |
           set -e
-          curl -fsSL -o /tmp/chrome.zip             https://cdn.npmmirror.com/binaries/chrome-for-testing/131.0.6778.204/linux64/chrome-linux64.zip
+          curl -fsSL -o /tmp/chrome.zip \
+            https://cdn.npmmirror.com/binaries/chrome-for-testing/131.0.6778.204/linux64/chrome-linux64.zip
           unzip -q /tmp/chrome.zip -d /tmp/chrome-bin
       - name: locate chromium
         shell: bash
@@ -42,17 +43,27 @@ jobs:
       - name: test
         run: cargo test
 
+  # 六平台构建验证：每个目标在其原生 runner 上构建（ring 含 C 代码，
+  # 跨 OS 交叉（Linux→macOS/Windows）在本工具链下不可行）。
   cross-compile:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        target:
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-          - x86_64-pc-windows-msvc
-          - aarch64-pc-windows-msvc
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross_linker: aarch64-linux-gnu-gcc
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -60,9 +71,12 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: install cross linker (aarch64-linux)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.cross_linker != ''
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: build
-        run: cargo build --release --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.cross_linker }}" ]; then
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="${{ matrix.cross_linker }}"
+          fi
+          cargo build --release --target ${{ matrix.target }}

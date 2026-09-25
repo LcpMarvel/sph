@@ -244,6 +244,7 @@ impl Store {
                         format_args!("无法创建配置目录: {e}"),
                     )
                 })?;
+                #[cfg(unix)]
                 let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
             }
             Err(e) => {

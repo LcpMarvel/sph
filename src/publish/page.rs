@@ -475,8 +475,11 @@ impl<'a> PublishPage<'a> {
         Ok(())
     }
 
-    /// 勾选"含 AI 生成内容"视频标注（div 模拟 checkbox，需要完整 mouse 事件序列）。
-    /// 交互校准自 frankwei2019/auto-weixin-video 的踩坑记录。
+    /// 勾选"含 AI 生成内容"视频标注。
+    ///
+    /// 真实控件是 Vue 选项：点一次选中，再点一次取消（`selectOption` 按 tagType 切换）。
+    /// 因此这里只派发一次 click。多派一次（事件序列里的 click 再加 `el.click()`）
+    /// 会把刚选中的项立刻取消，表现成「下拉收起了但没选中」。
     pub async fn mark_ai_content(&self) -> Result<()> {
         let kw = self.selectors.mark_ai_keyword.as_ref();
         let kw_json = serde_json::to_string(kw).unwrap_or_default();
@@ -523,7 +526,8 @@ impl<'a> PublishPage<'a> {
         if state.as_deref() == Some("checked") {
             return Ok(());
         }
-        // 3) 完整 mouse 事件序列 + el.click()
+        // 3) 只点一次。选项在 .mark-tag-option 上 stopPropagation 后 selectOption；
+        //    点在内层 .option-main 会冒泡到同一处理器，同样只允许一次 click。
         let click_js = format!(
             r#"(function(){{
           {ROOTS}
@@ -532,16 +536,11 @@ impl<'a> PublishPage<'a> {
             for (const el of sub.querySelectorAll({mark_sel:?})) {{
               if (!vis(el)) continue;
               const t = (el.innerText||'').trim();
-              if (t.includes({kw_json})) {{
-                el.scrollIntoView({{block:'center'}});
-                const r = el.getBoundingClientRect();
-                const cx = r.left + r.width/2, cy = r.top + r.height/2;
-                ['mouseenter','mouseover','mousedown','focus','mouseup','click'].forEach(type => {{
-                  el.dispatchEvent(new MouseEvent(type, {{bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy, button:0}}));
-                }});
-                el.click();
-                return true;
-              }}
+              if (!t.includes({kw_json})) continue;
+              if (!el.classList.contains('mark-tag-option')) continue;
+              el.scrollIntoView({{block:'center'}});
+              el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true, view:window}}));
+              return true;
             }}
           }}
           return false;
