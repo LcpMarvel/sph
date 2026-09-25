@@ -64,6 +64,12 @@ pub async fn launch(
         .arg("--metrics-recording-only")
         .arg("--password-store=basic")
         .arg("--use-mock-keychain");
+    // CI/Linux 环境禁用 sandbox：Ubuntu 23.10+（含 GitHub runner）默认
+    // AppArmor 禁止非特权用户命名空间，Chromium 无法以 sandbox 启动。
+    // 本机真实使用保持 sandbox 开启。
+    if std::env::var_os("CI").is_some() || std::env::var_os("SPH_NO_SANDBOX").is_some() {
+        builder = builder.no_sandbox();
+    }
     if headed {
         builder = builder.with_head();
     }
