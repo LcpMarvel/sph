@@ -118,18 +118,22 @@ pub fn stdin_is_terminal() -> bool {
 pub const HELP_TEXT: &str = "sph — 微信视频号本地自动化工具（v2）
 
 用法:
-  sph login [--timeout 5m]                   扫码登录视频号助手（持久会话）
-  sph login --yuanbao                        登录元宝（下载解析凭证，一次性浏览器）
+  sph login [--timeout 5m] [--account NAME]   扫码登录视频号助手（持久会话）
+  sph login --yuanbao                         登录元宝（下载解析凭证，一次性浏览器）
   sph publish VIDEO.mp4 --title \"标题\" [选项]  发布视频到视频号
-  sph accounts                               查看本地账号会话状态（不联网）
-  sph history [--limit N] [--json]           查看发布恢复轨迹
+  sph batch <目录> [选项]                      目录内 .mp4 顺序上架（标题=文件名，同名图片自动封面）
+  sph accounts                                查看本地账号会话状态（不联网）
+  sph history [--limit N] [--json]            查看发布恢复轨迹
+  sph doctor [--json]                         健康检查（会话/凭证/补丁/浏览器）
+  sph patch export [--output F]               导出 selector 补丁
+  sph patch import <file>                     导入补丁（未知字段报错）
   sph inspect URL [--json] [--timeout 60s]    解析分享链接，查看视频信息
   sph download URL [-o FILE.mp4] [--overwrite] [--max-bytes N] [--json]
   pbpaste | sph download --stdin              从 stdin 读取链接
-  sph auth status                            查看下载凭证状态（不联网）
-  sph logout [--assistant]                   清除下载凭证 / 助手会话
+  sph auth status                             查看下载凭证状态（不联网）
+  sph logout [--assistant]                    清除下载凭证 / 助手会话
   sph auth import --stdin [--headers-file F]  故障备用：手动导入 Cookie
-  sph version                                显示版本
+  sph version                                 显示版本
 
 publish 选项:
   --title \"标题\"        必填
@@ -137,10 +141,17 @@ publish 选项:
   --tags \"机械,科普\"     逗号分隔
   --cover FILE.jpg       封面图
   --at \"YYYY-MM-DD HH:MM\"  定时发表（本地时区，默认立即）
+  --collection \"名称\"    加入合集
+  --link \"名称\"          添加链接
+  --activity \"名称\"      关联活动
+  --ai-mark              标注含 AI 生成内容
   --account NAME         使用指定账号（默认 default）
   --dry-run              走完除提交外的全部步骤
   --headed               可见浏览器（调试用）
   --json                 单 JSON 对象输出
+  --timeout <时长>       覆盖默认超时
+
+batch 选项: --tags / --description / --account / --dry-run / --headed / --json / --timeout
 
 说明:
   - 首次使用执行 sph login：扫码后登录态保存在本机专用 profile，后续
