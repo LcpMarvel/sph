@@ -9,5 +9,12 @@
   },
   "homepage": "https://github.com/LcpMarvel/sph",
   "repository": "https://github.com/LcpMarvel/sph",
-  "keywords": ["wechat", "channels", "shipinhao", "video", "publish", "download"]
+  "keywords": [
+    "wechat",
+    "channels",
+    "shipinhao",
+    "video",
+    "publish",
+    "download"
+  ]
 }
