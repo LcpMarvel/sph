@@ -526,10 +526,12 @@ impl Store {
                 )
             })?;
         f.try_lock_exclusive().map_err(|e| {
-            if matches!(
+            // Windows: ERROR_LOCK_VIOLATION(33) / ERROR_SHARING_VIOLATION(32) 表示锁被占用
+            let busy = matches!(
                 e.kind(),
                 ErrorKind::WouldBlock | ErrorKind::PermissionDenied
-            ) {
+            ) || matches!(e.raw_os_error(), Some(33) | Some(32));
+            if busy {
                 AppError::new(
                     Code::AuthBusy,
                     Stage::Credentials,
