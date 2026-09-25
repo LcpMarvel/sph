@@ -83,7 +83,12 @@ jobs:
           ext=""
           if [[ "${{ matrix.target }}" == *windows* ]]; then ext=".exe"; fi
           cp "target/${{ matrix.target }}/release/sph${ext}" "sph-${{ matrix.target }}${ext}"
-          zip -q "release/${{ steps.name.outputs.artifact }}.zip" "sph-${{ matrix.target }}${ext}"
+          # windows 的 Git Bash 没有 zip，回退到镜像自带的 7z
+          if command -v zip >/dev/null; then
+            zip -q "release/${{ steps.name.outputs.artifact }}.zip" "sph-${{ matrix.target }}${ext}"
+          else
+            7z a -tzip "release/${{ steps.name.outputs.artifact }}.zip" "sph-${{ matrix.target }}${ext}" >/dev/null
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
