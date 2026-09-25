@@ -14,7 +14,9 @@ use chromiumoxide::cdp::browser_protocol::dom::{
     EnableParams, GetDocumentParams, GetSearchResultsParams, NodeId, PerformSearchParams,
     SetFileInputFilesParams,
 };
-use chromiumoxide::cdp::browser_protocol::input::InsertTextParams;
+use chromiumoxide::cdp::browser_protocol::input::{
+    DispatchMouseEventParams, DispatchMouseEventType, InsertTextParams, MouseButton,
+};
 use chromiumoxide::Page;
 
 use crate::apperr::{AppError, Code, Result, Stage};
@@ -398,6 +400,9 @@ impl<'a> PublishPage<'a> {
     }
 
     /// 通用下拉选择：点 label 行的下拉区 → 弹层里点选项文案 → 回填校验。
+    ///
+    /// 点击必须走 CDP 真实鼠标事件：antd/weui 的 Select 监听 mousedown 序列，
+    /// JS 合成 dispatchEvent('click') 不会展开弹层（2026-09 合集失败实测）。
     pub async fn select_dropdown_option(
         &self,
         label: &str,
@@ -405,57 +410,58 @@ impl<'a> PublishPage<'a> {
         stage: Stage,
     ) -> Result<()> {
         let lbl = serde_json::to_string(label).unwrap_or_default();
-        // 1) 点开下拉：label 所在表单项内的 placeholder/箭头
+        // 1) 找下拉触发区，返回中心点视口坐标（点击由 CDP 完成，不在 JS 里点）
         let open_js = format!(
             r#"(function(){{
           {ROOTS}
           const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          const center = el => {{
+            const r = el.getBoundingClientRect();
+            return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
+          }};
           for (const sub of __roots) {{
             for (const lab of sub.querySelectorAll('.label, div, span')) {{
               if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
-              const item = lab.closest('.form-item') || lab.parentElement;
+              const item = lab.closest('.form-item, [class*=form__item], [class*=form-item]') || lab.parentElement;
               if (!item) continue;
               const ph = item.querySelector('.select-placeholder, [class*=select], [class*=dropdown]');
-              if (ph && vis(ph)) {{ ph.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}})); return true; }}
-              if (vis(item)) {{ item.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}})); return true; }}
+              if (ph && vis(ph)) {{ return center(ph); }}
+              if (vis(item)) {{ return center(item); }}
             }}
           }}
-          return false;
+          return '';
         }})()"#
         );
-        let opened = self.run_js(&open_js, stage).await?;
-        if opened.as_deref() != Some("true") {
+        let coords = self.run_js(&open_js, stage).await?.unwrap_or_default();
+        if coords.is_empty() {
             return Err(AppError::fmt(
                 Code::SchemaChanged,
                 stage,
                 format_args!("未找到下拉入口：{label}"),
             ));
         }
+        self.real_click_coords(&coords, stage).await?;
         tokio::time::sleep(Duration::from_millis(800)).await;
-        // 2) 弹层里点选项（精确文案优先，其次包含）
+        // 2) 弹层里找选项（精确文案优先，其次包含），同样取坐标后真实点击
         let opt = serde_json::to_string(option).unwrap_or_default();
         let pick_js = format!(
             r#"(function(){{
           {ROOTS}
           const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+          const center = el => {{
+            const r = el.getBoundingClientRect();
+            return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
+          }};
           for (const sub of __roots) {{
             for (const el of sub.querySelectorAll('li, [class*=option], [class*=item], .weui-desktop-select__option')) {{
               if (!vis(el)) continue;
-              const t = (el.innerText||'').trim();
-              if (t === {opt}) {{
-                el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
-                return 'exact';
-              }}
+              if ((el.innerText||'').trim() === {opt}) {{ return center(el); }}
             }}
           }}
           for (const sub of __roots) {{
             for (const el of sub.querySelectorAll('li, [class*=option], [class*=item]')) {{
               if (!vis(el)) continue;
-              const t = (el.innerText||'').trim();
-              if (t.includes({opt})) {{
-                el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
-                return 'fuzzy';
-              }}
+              if ((el.innerText||'').trim().includes({opt})) {{ return center(el); }}
             }}
           }}
           return '';
@@ -471,7 +477,47 @@ impl<'a> PublishPage<'a> {
                 ),
             ));
         }
+        self.real_click_coords(&picked, stage).await?;
         tokio::time::sleep(Duration::from_millis(500)).await;
+        Ok(())
+    }
+
+    /// 在 "x,y"（视口 CSS 像素）坐标处做一次 CDP 真实点击。
+    async fn real_click_coords(&self, coords: &str, stage: Stage) -> Result<()> {
+        let (x, y): (f64, f64) = coords
+            .split_once(',')
+            .and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?)))
+            .ok_or_else(|| AppError::new(Code::InternalError, stage, "点击坐标解析失败"))?;
+        for ty in [
+            DispatchMouseEventType::MousePressed,
+            DispatchMouseEventType::MouseReleased,
+        ] {
+            self.page
+                .execute(
+                    DispatchMouseEventParams::builder()
+                        .r#type(ty)
+                        .x(x)
+                        .y(y)
+                        .button(MouseButton::Left)
+                        .click_count(1)
+                        .build()
+                        .map_err(|e| {
+                            AppError::fmt(
+                                Code::InternalError,
+                                stage,
+                                format_args!("构造点击事件失败: {e}"),
+                            )
+                        })?,
+                )
+                .await
+                .map_err(|e| {
+                    AppError::fmt(
+                        Code::SchemaChanged,
+                        stage,
+                        format_args!("真实点击失败: {e}"),
+                    )
+                })?;
+        }
         Ok(())
     }
 
