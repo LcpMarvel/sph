@@ -1,0 +1,13 @@
+{
+  "name": "sph",
+  "displayName": "sph 视频号自动化",
+  "version": "2.0.0",
+  "description": "微信视频号本地自动化：发布、定时发表、批量上架、下载。驱动本机 sph CLI，扫码登录一次后全程非交互。",
+  "author": {
+    "name": "LcpMarvel",
+    "url": "https://github.com/LcpMarvel"
+  },
+  "homepage": "https://github.com/LcpMarvel/sph",
+  "repository": "https://github.com/LcpMarvel/sph",
+  "keywords": ["wechat", "channels", "shipinhao", "video", "publish", "download"]
+}

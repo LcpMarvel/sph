@@ -1,0 +1,15 @@
+{
+  "name": "sph",
+  "description": "sph — 微信视频号本地自动化 CLI 的官方插件市场",
+  "owner": {
+    "name": "LcpMarvel",
+    "url": "https://github.com/LcpMarvel"
+  },
+  "plugins": [
+    {
+      "name": "sph",
+      "source": "./",
+      "description": "微信视频号自动化：发布/定时发布视频、批量上架、下载视频号视频（驱动本机 sph CLI）"
+    }
+  ]
+}

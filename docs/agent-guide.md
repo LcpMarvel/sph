@@ -4,6 +4,14 @@
 
 sph 是本地视频号自动化 CLI：发布、定时发表、批量上架、下载。单二进制、零运行时依赖、local-first。**不要把本文件喂给模型之外的读者**——它就是给你看的。
 
+> **Claude Code 用户**：不必读本文件，装插件即可（含调用契约与安全边界的 skill 会随插件自动就位）：
+> ```
+> /plugin marketplace add LcpMarvel/sph
+> /plugin install sph@sph
+> ```
+> 离线场景也可以手动 `cp -r skills/sph ~/.claude/skills/`。
+> 其他 Agent（Codex、WorkBuddy 等）继续按本文件接入。
+
 ## 1. 安装
 
 从 Release 下载（按平台选文件）或源码安装：

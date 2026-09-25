@@ -76,7 +76,14 @@ sph version / --help
 
 ## 给脚本 / AI Agent 用
 
-除 `login`（需扫码）外所有命令**非交互**。`--json` 模式下 stdout 恰好一个 JSON 对象，进度与诊断全在 stderr；退出码稳定可编程：
+**Claude Code 用户**直接装插件，skill 会自动教 Claude 安全地驱动 sph：
+
+```
+/plugin marketplace add LcpMarvel/sph
+/plugin install sph@sph
+```
+
+其他 Agent（Codex 等）按 [docs/agent-guide.md](docs/agent-guide.md) 接入。调用契约：除 `login`（需扫码）外所有命令**非交互**。`--json` 模式下 stdout 恰好一个 JSON 对象，进度与诊断全在 stderr；退出码稳定可编程：
 
 | 退出码 | 含义 |
 | --- | --- |
