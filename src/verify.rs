@@ -462,17 +462,23 @@ mod tests {
         let dir = tempdir();
         let p = dir.join("v.mp4");
         std::fs::write(&p, synthetic_mp4(64)).unwrap();
-        let runner = FakeRunner {
-            result: Err(FfprobeError::NotFound),
-        };
         let link = dir.join("link.mp4");
         #[cfg(unix)]
         {
+            let runner = FakeRunner {
+                result: Err(FfprobeError::NotFound),
+            };
             std::os::unix::fs::symlink(&p, &link).unwrap();
             let err =
                 verify_with(&runner, &link, &crate::http::CancelToken::default()).unwrap_err();
             assert_eq!(err.code, Code::IOError);
         }
+        // 目录作为输入总是被拒绝（跨平台）
+        let dir_runner = FakeRunner {
+            result: Err(FfprobeError::NotFound),
+        };
+        let err = verify_with(&dir_runner, &dir, &crate::http::CancelToken::default()).unwrap_err();
+        assert_eq!(err.code, Code::IOError);
         let _ = link;
         let _ = &mut std::io::stdout() as &mut dyn Write;
     }
