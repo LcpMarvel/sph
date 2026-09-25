@@ -89,6 +89,27 @@ jobs:
           path: release/*
           if-no-files-found: error
 
+  # 插件版本跟随 tag：marketplace 拉的是 main，tag 指向的 commit 里 plugin.json
+  # 仍是旧版本，所以在 release 时把新版本回写 main，已装用户才能收到更新提示。
+  sync-plugin-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: inject tag version into plugin.json
+        run: |
+          tmp=$(mktemp)
+          jq --arg v "${GITHUB_REF_NAME#v}" '.version = $v' .claude-plugin/plugin.json > "$tmp"
+          mv "$tmp" .claude-plugin/plugin.json
+      - name: commit back to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/plugin.json
+          git diff --cached --quiet || git commit -m "release: plugin.json 版本同步 ${GITHUB_REF_NAME}"
+          git push origin main
+
   publish:
     needs: release
     runs-on: ubuntu-latest
