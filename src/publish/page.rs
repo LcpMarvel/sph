@@ -20,7 +20,6 @@ use chromiumoxide::cdp::browser_protocol::input::{
 use chromiumoxide::Page;
 
 use crate::apperr::{AppError, Code, Result, Stage};
-use crate::browser::wait_for_selector;
 use crate::upstream::sanitize_message;
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(90);
@@ -173,14 +172,30 @@ impl<'a> PublishPage<'a> {
     }
 
     /// 主页就绪检测（登录流程使用）。
+    ///
+    /// 未登录时平台是 JS 异步跳转 login.html，navigate 后立刻查 URL 可能还没跳，
+    /// 所以等待循环里每轮都复查登录页——否则会话失效会表现为等 `.brand-name` 超时。
     pub async fn wait_home_ready(&self, timeout: Duration) -> Result<()> {
-        wait_for_selector(
-            self.page,
-            self.selectors.home_ready.as_ref(),
-            timeout,
-            Stage::Navigate,
-        )
-        .await
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            self.require_logged_in().await?;
+            if self
+                .page
+                .find_element(self.selectors.home_ready.as_ref())
+                .await
+                .is_ok()
+            {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(AppError::new(
+                    Code::Timeout,
+                    Stage::Navigate,
+                    "等待主页就绪超时（页面未就绪或结构已变化）",
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
     }
 
     /// 点掉子应用内可见的引导对话框（我知道了/确定/切换）。
@@ -211,6 +226,7 @@ impl<'a> PublishPage<'a> {
     pub async fn enter_create_page(&self, timeout: Duration) -> Result<()> {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
+            self.require_logged_in().await?;
             self.try_click_video_menu().await;
             if self
                 .sub_text_by_button(self.selectors.publish_entry.as_ref())
@@ -524,8 +540,7 @@ impl<'a> PublishPage<'a> {
     /// 勾选"含 AI 生成内容"视频标注。
     ///
     /// 真实控件是 Vue 选项：点一次选中，再点一次取消（`selectOption` 按 tagType 切换）。
-    /// 因此这里只派发一次 click。多派一次（事件序列里的 click 再加 `el.click()`）
-    /// 会把刚选中的项立刻取消，表现成「下拉收起了但没选中」。
+    /// 使用一次 CDP 鼠标点击；合成 click 不一定触发平台的 mousedown 监听。
     pub async fn mark_ai_content(&self) -> Result<()> {
         let kw = self.selectors.mark_ai_keyword.as_ref();
         let kw_json = serde_json::to_string(kw).unwrap_or_default();
@@ -547,7 +562,14 @@ impl<'a> PublishPage<'a> {
           return false;
         }})()"#
         );
-        let _ = self.run_js(&expand_js, Stage::Declaration).await;
+        let expanded = self.run_js(&expand_js, Stage::Declaration).await?;
+        if expanded.as_deref() != Some("true") {
+            return Err(AppError::new(
+                Code::SchemaChanged,
+                Stage::Declaration,
+                "未找到视频标注入口",
+            ));
+        }
         tokio::time::sleep(Duration::from_millis(600)).await;
         // 2) 探测当前状态
         let probe_js = format!(
@@ -555,16 +577,22 @@ impl<'a> PublishPage<'a> {
           {ROOTS}
           const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
           for (const sub of __roots) {{
+            for (const el of sub.querySelectorAll('.select-placeholder')) {{
+              if (vis(el) && (el.innerText||'').includes({kw_json})) return 'checked';
+            }}
+          }}
+          let found = false;
+          for (const sub of __roots) {{
             for (const el of sub.querySelectorAll({mark_sel:?})) {{
-              if (!vis(el)) continue;
               const t = (el.innerText||'').trim();
               if (t.includes({kw_json})) {{
+                found = true;
                 const cls = (typeof el.className === 'string' ? el.className : '');
-                return (cls.includes('checked') || cls.includes('is-selected') || el.getAttribute('aria-checked') === 'true') ? 'checked' : 'unchecked';
+                if (cls.includes('checked') || cls.includes('is-selected') || el.getAttribute('aria-checked') === 'true') return 'checked';
               }}
             }}
           }}
-          return 'absent';
+          return found ? 'unchecked' : 'absent';
         }})()"#,
             mark_sel = mark_sel
         );
@@ -572,8 +600,7 @@ impl<'a> PublishPage<'a> {
         if state.as_deref() == Some("checked") {
             return Ok(());
         }
-        // 3) 只点一次。选项在 .mark-tag-option 上 stopPropagation 后 selectOption；
-        //    点在内层 .option-main 会冒泡到同一处理器，同样只允许一次 click。
+        // 3) 只点一次。选项在 .mark-tag-option 上 stopPropagation 后 selectOption。
         let click_js = format!(
             r#"(function(){{
           {ROOTS}
@@ -585,22 +612,26 @@ impl<'a> PublishPage<'a> {
               if (!t.includes({kw_json})) continue;
               if (!el.classList.contains('mark-tag-option')) continue;
               el.scrollIntoView({{block:'center'}});
-              el.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true, view:window}}));
-              return true;
+              const r = el.getBoundingClientRect();
+              return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
             }}
           }}
-          return false;
+          return '';
         }})()"#,
             mark_sel = mark_sel
         );
-        let clicked = self.run_js(&click_js, Stage::Declaration).await?;
-        if clicked.as_deref() != Some("true") {
+        let clicked = self
+            .run_js(&click_js, Stage::Declaration)
+            .await?
+            .unwrap_or_default();
+        if clicked.is_empty() {
             return Err(AppError::fmt(
                 Code::SchemaChanged,
                 Stage::Declaration,
                 format_args!("未找到视频标注选项（关键词 {kw}）"),
             ));
         }
+        self.real_click_coords(&clicked, Stage::Declaration).await?;
         tokio::time::sleep(Duration::from_millis(1200)).await;
         // 4) 校验
         let state2 = self.run_js(&probe_js, Stage::Declaration).await?;
@@ -608,7 +639,10 @@ impl<'a> PublishPage<'a> {
             return Err(AppError::new(
                 Code::PublishRejected,
                 Stage::Declaration,
-                "视频标注勾选后状态校验未通过",
+                format!(
+                    "视频标注勾选后状态校验未通过（当前状态：{}）",
+                    state2.unwrap_or_default()
+                ),
             ));
         }
         Ok(())

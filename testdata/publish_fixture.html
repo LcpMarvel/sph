@@ -105,9 +105,11 @@ document.querySelectorAll('.options .opt').forEach(function (opt) {
 document.querySelector('.mark-placeholder').addEventListener('click', function () {
   document.querySelector('.mark-options').hidden = false;
 });
-document.querySelector('.mark-tag-option').addEventListener('click', function (e) {
+document.querySelector('.mark-tag-option').addEventListener('mousedown', function (e) {
   e.stopPropagation();
   this.classList.toggle('is-selected');
+  document.querySelector('.mark-placeholder').innerText = this.classList.contains('is-selected') ? '含AI生成内容' : '视频标注';
+  document.querySelector('.mark-options').hidden = true;
 });
 // 定时：点"定时"radio 显示面板；点日期 input 弹 picker；点日期回填
 document.querySelectorAll('.weui-desktop-form__check-content').forEach(function (sp) {
