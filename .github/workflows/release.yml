@@ -42,10 +42,14 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
 
+      - name: version string
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: build
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          SPH_VERSION: ${{ github.ref_name }}
+          SPH_VERSION: ${{ steps.version.outputs.value }}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       # 产物命名沿用 v1 的发布物惯例：sph-<os>-<arch>[.zip|.tar.gz]
