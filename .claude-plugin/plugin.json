@@ -1,7 +1,7 @@
 {
   "name": "sph",
   "displayName": "sph 视频号自动化",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "微信视频号本地自动化：发布、定时发表、批量上架、下载。驱动本机 sph CLI，扫码登录一次后全程非交互。",
   "author": {
     "name": "LcpMarvel",
