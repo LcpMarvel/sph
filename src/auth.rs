@@ -516,6 +516,7 @@ impl Store {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(self.lock_path())
             .map_err(|e| {
                 AppError::fmt(
