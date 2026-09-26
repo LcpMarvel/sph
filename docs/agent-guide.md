@@ -83,6 +83,13 @@ sph download "https://weixin.qq.com/sph/xxxx" -o out.mp4 --json
 # 先验证不写库（强烈建议首次接入时先跑一遍）
 sph publish ./v.mp4 --title "测试" --dry-run --json
 
+# 已发布视频：列表 / 按合集过滤 / 修改标题描述封面（先 dry-run）
+sph list --json
+sph list --collection "机械系列" --json
+sph edit <id> --title "新标题" --dry-run --json     # --title=平台短标题，总长须 6..=16 字
+sph edit <id> --description "新描述" --cover c.jpg --json
+# 注意：edit 的差异区间单次限 20 字（描述）/ 16 字（短标题），超限本地拒绝（退出码 2）
+
 # 排查
 sph doctor --json          # 环境健康检查（会话/凭证/补丁/浏览器）
 sph history --json         # 发布与自动恢复轨迹
@@ -91,7 +98,7 @@ sph history --json         # 发布与自动恢复轨迹
 ## 5. 安全边界（Agent 必须遵守）
 
 - **绝不读取、展示、传输** `~/.sph/` 下的任何文件内容（凭证、profile、轨迹可能含敏感信息）；只通过 `sph` 命令与之交互。
-- 发布是**真实对外动作**：未经用户明确确认不要带 `--at` 定时或去掉 `--dry-run` 实发。
+- 发布是**真实对外动作**：未经用户明确确认不要带 `--at` 定时或去掉 `--dry-run` 实发。`sph edit`（改已发布视频的标题/描述/封面）同样是对外动作：先复述变更、先 `--dry-run`。
 - `sph logout --assistant` / `sph logout` 会清除会话——执行前需用户确认。
 - 错误消息可以转述；现场目录（`~/.sph/crashes/`）里的 `page.txt`/`screenshot.png` 可以提供给用户或更高层模型分析，但不要外发。
 

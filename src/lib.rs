@@ -13,3 +13,4 @@ pub mod publish;
 pub mod session;
 pub mod upstream;
 pub mod verify;
+pub mod videos;

@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>videos-list-fixture</title>
+<!-- 视频管理列表的最小仿真（离线回归 fixture）。
+     关键技巧：stub window.fetch 返回罐装 post_list 分页响应，
+     file:// 页面无需真后端即可测通分页循环与合集过滤全链路。
+     响应形状对齐 videos/api.rs 的宽容解析（spike 校准后如有出入在此收紧）。 -->
+<div id="home">
+  <div class="brand-name">视频号 · 助手（fixture）</div>
+</div>
+<script>
+(function () {
+  // 罐装数据：3 页（pageSize=2）。字段形状对齐 2026-09-26 spike 实测
+  //（desc.shortTitle / desc.description / desc.media[0].coverUrl / continueFlag，
+  // 真实 post_list 不含合集归属）。
+  // 合集归属走独立的 collection CGI（同日 collection 探针定案）：
+  //   get_collection_list      → data.collectionList[] = {id, name, feedCount}
+  //   get_collection_feed_list → data.objectInfo[] = {feed, sortId}，total=collectionFeedCount
+  var DATA = [
+    {objectId: 'v1', createTime: 1790000000, readCount: 10, likeCount: 2, commentCount: 1, desc: {shortTitle: '齿轮是怎么工作的', description: '描述一', media: [{coverUrl: 'https://cdn.example.com/c1.jpg'}]}},
+    {objectId: 'v2', createTime: 1789900000, readCount: 8, desc: {shortTitle: '杠杆原理', description: '描述二', media: [{coverUrl: 'https://cdn.example.com/c2.jpg'}]}},
+    {objectId: 'v3', createTime: 1789800000, desc: {shortTitle: '水的表面张力', description: '描述三', media: [{coverUrl: 'https://cdn.example.com/c3.jpg'}]}},
+    {objectId: 'v4', createTime: 1789700000, desc: {shortTitle: '光的折射', media: [{coverUrl: 'https://cdn.example.com/c4.jpg'}]}},
+    {objectId: 'v5', createTime: 1789600000, desc: {shortTitle: '无合集的一条', media: []}}
+  ];
+  var COLLECTIONS = [
+    {id: 'event/colA', name: '机械系列', feedCount: 2, members: ['v1', 'v2']},
+    {id: 'event/colB', name: '儿童科普', feedCount: 2, members: ['v3', 'v4']}
+  ];
+  function resp(payload) {
+    return {
+      status: 201,
+      headers: {get: function () { return 'application/json'; }},
+      text: function () { return Promise.resolve(JSON.stringify(payload)); }
+    };
+  }
+  window.fetch = function (url, opts) {
+    var body = JSON.parse((opts && opts.body) || '{}');
+    var pageSize = body.pageSize || 2;
+    if (url.indexOf('get_collection_feed_list') >= 0) {
+      var col = COLLECTIONS.filter(function (c) { return c.id === body.collectionId; })[0];
+      var feeds = (col ? col.members : []).map(function (id, i) {
+        return {feed: DATA.filter(function (d) { return d.objectId === id; })[0], sortId: i};
+      });
+      var fp = ((body.pageNum || 1) - 1) * pageSize;
+      return Promise.resolve(resp({errCode: 0, data: {
+        objectInfo: feeds.slice(fp, fp + pageSize),
+        collectionFeedCount: feeds.length
+      }}));
+    }
+    if (url.indexOf('get_collection_list') >= 0) {
+      return Promise.resolve(resp({errCode: 0, data: {
+        collectionList: COLLECTIONS.map(function (c) {
+          return {id: c.id, name: c.name, feedCount: c.feedCount};
+        }),
+        collectionListCount: COLLECTIONS.length
+      }}));
+    }
+    // post_list
+    var page = body.currentPage || 1;
+    var start = (page - 1) * pageSize;
+    var items = DATA.slice(start, start + pageSize);
+    var hasMore = start + pageSize < DATA.length;
+    return Promise.resolve(resp({errCode: 0, data: {continueFlag: hasMore ? 1 : 0, totalCount: DATA.length, list: items}}));
+  };
+})();
+</script>

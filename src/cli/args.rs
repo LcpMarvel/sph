@@ -57,6 +57,24 @@ fn cmd_flag_specs(command: &str) -> Vec<FlagSpec> {
         ],
         "logout" => vec![bool_spec("assistant")],
         "history" => vec![spec("limit"), bool_spec("json")],
+        "list" => vec![
+            spec("collection"),
+            spec("limit"),
+            spec("account"),
+            bool_spec("headed"),
+            spec("timeout"),
+            bool_spec("json"),
+        ],
+        "edit" => vec![
+            spec("title"),
+            spec("description"),
+            spec("cover"),
+            spec("account"),
+            bool_spec("dry-run"),
+            bool_spec("headed"),
+            spec("timeout"),
+            bool_spec("json"),
+        ],
         "doctor" => vec![bool_spec("json")],
         "patch export" => vec![spec("output")],
         "patch import" => vec![],
@@ -114,6 +132,8 @@ pub fn known_commands() -> Vec<&'static str> {
         "publish",
         "accounts",
         "history",
+        "list",
+        "edit",
         "batch",
         "doctor",
         "patch export",
@@ -211,7 +231,7 @@ pub fn parse_args(argv: &[String]) -> Result<Command> {
             Code::InvalidArgument,
             Stage::Arguments,
             format_args!(
-                "未知命令：{command}（可用：login / inspect / download / auth / logout / version）"
+                "未知命令：{command}（可用：login / inspect / download / auth / logout / publish / batch / accounts / history / list / edit / doctor / patch / version）"
             ),
         ));
     }

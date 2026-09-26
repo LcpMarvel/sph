@@ -1,0 +1,178 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>videos-edit-fixture</title>
+<!-- 视频编辑页（coverEdit 路由）的最小仿真（离线回归 fixture）。
+     复刻 2026-09-26 真实平台校准的交互模型：
+     划词选中 → selectionEnd → .edit-pop 弹层（修改/删除）→ .input-item-input
+     输入框 → 提交编辑动作（span.edited + .edited-count 徽标）→ 「完成」→
+     确认弹窗（取消/确认修改）→ top-tip 修改成功并写回 DATA（供复检）。
+     ?editReject=1 时「确认修改」改为显示平台错误（PublishRejected 分支）。
+     fetch stub 提供 post_list（list/edit 定位与复检共用）。 -->
+<style>[hidden]{display:none!important}</style>
+<div id="home">
+  <div class="brand-name">视频号 · 助手（fixture）</div>
+  <div class="finder-ui-desktop-menu__sub__li">视频</div>
+</div>
+<section class="edit-card">
+  <div class="edit-item">
+    <div class="edit-btn">编辑</div>
+    <span>个人主页卡片 3:4</span>
+  </div>
+  <div class="edit-item">
+    <label>视频描述</label>
+    <div class="edit-desc-content edit-select-area">描述一</div>
+  </div>
+  <div class="edit-item">
+    <label>短标题</label>
+    <div class="edit-shorttitle-content edit-select-area">齿轮是怎么工作的</div>
+  </div>
+  <span class="edited-count" hidden></span>
+  <button id="done-btn" type="button">完成</button>
+</section>
+
+<!-- 划词弹层 -->
+<div class="edit-pop" hidden>
+  <div class="weui-desktop-popover">
+    <div class="edit-pop-content">
+      <div id="pop-modify">修改</div>
+      <div id="pop-delete">删除</div>
+    </div>
+  </div>
+</div>
+<!-- 替换输入框弹层 -->
+<div class="edit-input-pop" hidden>
+  <input class="input-item-input" type="text">
+  <div class="edit-input-btns">
+    <button id="input-cancel" type="button">取消</button>
+    <button id="input-confirm" type="button">修改</button>
+  </div>
+</div>
+<!-- 封面编辑器 -->
+<div class="weui-desktop-dialog__wrp" id="cover-dialog" hidden>
+  <div class="cover-set-wrap">
+    <span>上传封面</span>
+    <input type="file" id="cover-file" accept="image/jpeg,image/jpg,image/png">
+  </div>
+  <button id="cover-cancel" type="button">取消</button>
+  <button id="cover-confirm" type="button">确认</button>
+</div>
+
+<script>
+(function () {
+  var DATA = [
+    {objectId: 'v1', createTime: 1790000000, desc: {shortTitle: '齿轮是怎么工作的', description: '描述一', media: [{coverUrl: 'https://cdn.example.com/c1.jpg'}]}},
+    {objectId: 'v2', createTime: 1789900000, desc: {shortTitle: '杠杆原理', description: '描述二', media: [{coverUrl: 'https://cdn.example.com/c2.jpg'}]}}
+  ];
+  window.fetch = function (url, opts) {
+    return Promise.resolve({
+      status: 201,
+      headers: {get: function () { return 'application/json'; }},
+      text: function () {
+        return Promise.resolve(JSON.stringify({errCode: 0, data: {continueFlag: 0, totalCount: DATA.length, list: DATA}}));
+      }
+    });
+  };
+
+  var $ = function (s) { return document.querySelector(s); };
+  var pop = $('.edit-pop');
+  var inputPop = $('.edit-input-pop');
+  var editingSpan = null;
+  var savedRange = null;   // 真实组件在 selectionEnd 时保存 range，点击后选区塌缩不影响
+  var editCount = 0;
+
+  function showBadge() {
+    var b = $('.edited-count');
+    b.hidden = false;
+    b.innerText = '已修改描述 ' + editCount + '/20';
+    $('#done-btn').disabled = false;
+  }
+
+  // 划词 → selectionEnd → 弹层（复刻真实组件：容器监听 selectionEnd 并保存 range）
+  document.querySelectorAll('.edit-select-area').forEach(function (area) {
+    area.addEventListener('selectionEnd', function () {
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      savedRange = sel.getRangeAt(0).cloneRange();
+      pop.hidden = false;
+    });
+  });
+
+  // 弹层「修改」：包裹选区 + 开输入框
+  $('#pop-modify').addEventListener('click', function () {
+    if (!savedRange) return;
+    var span = document.createElement('span');
+    span.className = 'editing edited';
+    try { savedRange.surroundContents(span); } catch (e) { return; }
+    editingSpan = span;
+    editCount += span.textContent.length;
+    savedRange = null;
+    pop.hidden = true;
+    inputPop.hidden = false;
+  });
+
+  // 弹层「删除」
+  $('#pop-delete').addEventListener('click', function () {
+    if (!savedRange) return;
+    editCount += savedRange.toString().length;
+    savedRange.deleteContents();
+    savedRange = null;
+    pop.hidden = true;
+    showBadge();
+  });
+
+  // 输入框「修改」：提交编辑动作
+  $('#input-confirm').addEventListener('click', function () {
+    if (editingSpan) {
+      editingSpan.textContent = $('.input-item-input').value;
+      editingSpan = null;
+    }
+    inputPop.hidden = true;
+    showBadge();
+  });
+  $('#input-cancel').addEventListener('click', function () {
+    inputPop.hidden = true;
+  });
+
+  // 封面「编辑」→ 编辑器对话框
+  $('.edit-btn').addEventListener('click', function () {
+    $('#cover-dialog').hidden = false;
+  });
+  $('#cover-cancel').addEventListener('click', function () {
+    $('#cover-dialog').hidden = true;
+  });
+  $('#cover-confirm').addEventListener('click', function () {
+    if ($('#cover-file').files.length > 0) {
+      DATA[0].desc.media[0].coverUrl = 'https://cdn.example.com/new-cover.jpg';
+    }
+    $('#cover-dialog').hidden = true;
+    showBadge();
+  });
+
+  // 「完成」→ 确认弹窗（toast/弹窗须动态插入：sub_exists 不看可见性）
+  $('#done-btn').addEventListener('click', function () {
+    var dlg = document.createElement('div');
+    dlg.className = 'weui-desktop-dialog__wrp';
+    dlg.innerHTML = '<div class="bd">仅支持修改一次，修改后不可撤回。</div>' +
+      '<button type="button" id="dlg-cancel">取消</button>' +
+      '<button type="button" id="dlg-confirm">确认修改</button>';
+    document.body.appendChild(dlg);
+    dlg.querySelector('#dlg-cancel').addEventListener('click', function () { dlg.remove(); });
+    dlg.querySelector('#dlg-confirm').addEventListener('click', function () {
+      dlg.remove();
+      if (location.search.indexOf('editReject=1') >= 0) {
+        var err = document.createElement('div');
+        err.className = 'weui-desktop-tips';
+        err.innerText = '修改失败, 错误码:30001';
+        document.body.appendChild(err);
+        return;
+      }
+      DATA[0].desc.description = $('.edit-desc-content').textContent;
+      DATA[0].desc.shortTitle = $('.edit-shorttitle-content').textContent;
+      var ok = document.createElement('div');
+      ok.className = 'weui-desktop-tips';
+      ok.innerText = '修改成功';
+      document.body.appendChild(ok);
+    });
+  });
+})();
+</script>

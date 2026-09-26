@@ -311,6 +311,16 @@ v1 退出码表（0–14, 130）全部保留。新增：
 - `sph batch <dir>`；多账号登记与 `--account` 切换；
 - `sph status` / `sph history` 完整化。
 
+### M7 — 视频管理：`sph list` / `sph edit`（2026-09-26 完成真实校准）
+
+- `sph list [--collection "名称"] [--limit N]`：页面上下文 fetch 视频号助手内部 CGI 拉取已发布视频（分页循环、宽容解析、端点/请求体可由 `~/.sph/patches/videos.json` 的 `api` 节热修）；合集过滤走服务端成员接口（sniff+collection 探针定案：post_list 的 collectionId 参数被静默忽略；`get_collection_list` 名称→id，`get_collection_feed_list` 分页取成员，`objectInfo[].feed` 与 post_list 条目同形）；真实账号 `list --collection` 54 条验证通过；
+- `sph edit <id> [--title T] [--description D] [--cover F] [--dry-run]`：UI 驱动修改已发布视频（与 publish 同信任模型），提交后重新拉列表复检（`verified`）；真实对外动作，dry-run 惯例与 publish 一致；
+- **edit 平台机制（edit3–edit7 探针 + bundle 静态分析定案）**：编辑入口是路由页 `/platform/post/coverEdit?objectId=<id>`（非对话框）；描述/短标题是**划词编辑**（选中→selectionEnd→弹层「修改/删除」→输入框→逐条计入预算），故 `--title/--description` 实现为新旧文本最长公共前后缀 diff 后的一次区间替换——描述单次 ≤20 字、短标题 ≤16 字（差异区间超限本地拒绝，退出码 2），短标题总长 6..=16 字；平台「仅支持修改一次，不可撤回」；封面上传走「编辑」→ FinderCoverEditor（须等预览图生成完毕才点得开，file input accept=jpeg/jpg/png）；提交 = 页面「完成」→ 确认弹窗「确认修改」→ top-tip「修改成功」；纯 CGI（finderModFeed svrkit 网关）未授权，不可用；
+- **headless 导航**：整页 goto 深层路由 coverEdit 会被弹回 /platform（headless 限定；headed 不受影响），定案 = 主页加载后 `history.pushState + popstate` SPA 内部跳转（edit6 探针验证）；两个 `.input-item-input`（描述/短标题各一，一隐一显），填值必须选可见者；
+- **wujie 原语上抽**：`src/browser/wujie.rs`（ROOTS/run_js/search_node/set_file_input/insert_into/real_click_coords/select_dropdown_option 等），`PublishPage` 改为委托——publish/videos 共用同一基座；
+- 新 Stage：`fetch_list`；错误码无新增（15/11/16/6/4/2 全覆盖）；
+- 测试：153/153（list/edit 的 fixture e2e 用 `window.fetch` stub 罐装响应 + 真实 DOM Selection 复刻划词链路，file:// 离线测通分页/过滤/划词编辑/提交/复检/平台拒绝分支）；真实账号 dry-run（描述/短标题/组合）通过；**实改（非 dry-run）与封面实传尚未做真实验证，需用户确认后执行**。
+
 ### M5 — ~~`sph mcp`~~ 已砍（2026-09-24 用户决策）
 
 不做 MCP server。理由：`--json` 单对象输出 + 稳定退出码 + 完整错误契约已经是 Agent 集成的最佳形态

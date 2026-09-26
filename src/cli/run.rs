@@ -147,6 +147,8 @@ async fn dispatch(
         "publish" => run_publish(cmd, stdout, stderr, deps).await,
         "accounts" => run_accounts(stdout, deps),
         "history" => run_history(cmd, stdout, deps),
+        "list" => run_list(cmd, stdout, stderr, deps).await,
+        "edit" => run_edit(cmd, stdout, stderr, deps).await,
         "batch" => run_batch(cmd, stdout, stderr, deps).await,
         "patch export" => run_patch_export(cmd, stdout, deps),
         "patch import" => run_patch_import(cmd, stdout, deps),
@@ -440,6 +442,151 @@ async fn run_download(
             result.bytes, result.sha256, result.verification
         );
     }
+    Ok(())
+}
+
+// --- list / edit（视频管理） -------------------------------------------------
+
+const DEFAULT_LIST_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+const DEFAULT_EDIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// 列出已发布视频（可选 --collection 过滤）。
+async fn run_list(
+    cmd: &Command,
+    stdout: &mut dyn Write,
+    stderr: &SharedWriter,
+    deps: &Deps,
+) -> Result<()> {
+    if !cmd.positionals.is_empty() {
+        return Err(AppError::new(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            "list 不接受位置参数",
+        ));
+    }
+    let limit = match cmd.flag("limit") {
+        Some(raw) => match raw.parse::<usize>() {
+            Ok(v) if v > 0 => v,
+            _ => {
+                return Err(AppError::new(
+                    Code::InvalidArgument,
+                    Stage::Arguments,
+                    "--limit 必须是正整数",
+                ))
+            }
+        },
+        None => crate::videos::list::DEFAULT_LIMIT,
+    };
+    let timeout = parse_timeout_flag(cmd, DEFAULT_LIST_TIMEOUT)?;
+    let account = cmd
+        .flag("account")
+        .unwrap_or(session::DEFAULT_ACCOUNT)
+        .to_string();
+    let opts = crate::videos::ListOptions {
+        collection: cmd.flag("collection").map(String::from),
+        limit,
+        headed: cmd.bool_flag("headed"),
+        timeout,
+        cancel: deps.cancel.clone(),
+        stderr: stderr.clone(),
+        open_page: None,
+        navigate_url: None,
+        selectors: None,
+    };
+    let result = with_command_timeout(
+        timeout,
+        deps.cancel.clone(),
+        crate::videos::run_list(&(deps.config_dir)(), &account, opts),
+    )
+    .await?;
+    if cmd.bool_flag("json") {
+        let env = output::success_envelope(
+            "list",
+            serde_json::to_value(&result).map_err(|_| {
+                AppError::new(Code::InternalError, Stage::Arguments, "结果序列化失败")
+            })?,
+        );
+        return output::write_json(stdout, &env);
+    }
+    for v in &result.videos {
+        let created = v.created_at.as_deref().unwrap_or("-");
+        let collection = v.collection.as_deref().unwrap_or("-");
+        writeln!(stdout, "{}\t{}\t[{}]\t{}", v.id, created, collection, v.title)
+            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    }
+    if result.videos.is_empty() {
+        writeln!(stdout, "没有已发布视频（或合集过滤后为空）")
+            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+    }
+    Ok(())
+}
+
+/// 修改已发布视频的标题 / 描述 / 封面。
+async fn run_edit(
+    cmd: &Command,
+    stdout: &mut dyn Write,
+    stderr: &SharedWriter,
+    deps: &Deps,
+) -> Result<()> {
+    if cmd.positionals.len() != 1 {
+        return Err(AppError::new(
+            Code::InvalidArgument,
+            Stage::Arguments,
+            "edit 需要一个视频 id（用 sph list 查看）",
+        ));
+    }
+    let timeout = parse_timeout_flag(cmd, DEFAULT_EDIT_TIMEOUT)?;
+    let account = cmd
+        .flag("account")
+        .unwrap_or(session::DEFAULT_ACCOUNT)
+        .to_string();
+    let opts = crate::videos::EditOptions {
+        id: cmd.positionals[0].clone(),
+        title: cmd.flag("title").map(String::from),
+        description: cmd.flag("description").map(String::from),
+        cover: cmd.flag("cover").map(PathBuf::from),
+        dry_run: cmd.bool_flag("dry-run"),
+        headed: cmd.bool_flag("headed"),
+        timeout,
+        cancel: deps.cancel.clone(),
+        stderr: stderr.clone(),
+        open_page: None,
+        navigate_url: None,
+        selectors: None,
+    };
+    crate::videos::validate_edit(&opts)?;
+    let result = with_command_timeout(
+        timeout,
+        deps.cancel.clone(),
+        crate::videos::run_edit(&(deps.config_dir)(), &account, opts),
+    )
+    .await?;
+    if cmd.bool_flag("json") {
+        let env = output::success_envelope(
+            "edit",
+            serde_json::to_value(&result).map_err(|_| {
+                AppError::new(Code::InternalError, Stage::Arguments, "结果序列化失败")
+            })?,
+        );
+        return output::write_json(stdout, &env);
+    }
+    if result.dry_run {
+        writeln!(
+            stdout,
+            "dry-run 完成（未提交；将修改: {}，视频: {}）",
+            result.changed.join("/"),
+            result.id
+        )
+    } else {
+        writeln!(
+            stdout,
+            "修改已提交（视频: {}，字段: {}{}）",
+            result.id,
+            result.changed.join("/"),
+            if result.verified { "，复检通过" } else { "" }
+        )
+    }
+    .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
     Ok(())
 }
 
@@ -2160,5 +2307,102 @@ mod m4b_tests {
         let (code, out) = cli(&deps, &["doctor"]).await;
         assert_eq!(code, 0, "doctor should pass on ready env: {out}");
         assert!(out.contains("selector_patch"), "{out}");
+    }
+}
+
+#[cfg(test)]
+mod m5_videos_cli_tests {
+    use super::*;
+
+    fn deps_with(cfg: PathBuf) -> Deps {
+        Deps {
+            config_dir: Box::new(move || cfg.clone()),
+            interactive: Box::new(|| false),
+            upstream_factory: Box::new(|| {
+                Client::new(Arc::new(crate::http::ReqwestTransport::api()))
+            }),
+            media_factory: Box::new(|| Arc::new(crate::http::ReqwestTransport::media())),
+            cancel: CancelToken::default(),
+        }
+    }
+
+    fn tempdir(tag: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("sph-videos-cli-{tag}-{:016x}", {
+            use rand::Rng;
+            rand::thread_rng().gen::<u64>()
+        }));
+        std::fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    async fn cli(deps: &Deps, argv: &[&str]) -> (i32, String) {
+        let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
+        let stdin: Arc<Mutex<dyn Read + Send>> =
+            Arc::new(Mutex::new(std::io::Cursor::new(Vec::new())));
+        let mut stdout = Vec::new();
+        let stderr: SharedWriter = Arc::new(Mutex::new(Vec::new()));
+        let code = run(&argv, stdin, &mut stdout, stderr, deps).await;
+        (code, String::from_utf8_lossy(&stdout).into_owned())
+    }
+
+    #[tokio::test]
+    async fn list_edit_argument_errors() {
+        let deps = deps_with(tempdir("args").join("cfg"));
+        // list：位置参数 / 非法 limit
+        let (code, _) = cli(&deps, &["list", "extra"]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["list", "--limit", "0"]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["list", "--limit", "abc"]).await;
+        assert_eq!(code, 2);
+        // edit：缺 id / 多位置参数 / 无任何待修改字段 / 空 title / 封面不存在
+        let (code, _) = cli(&deps, &["edit"]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["edit", "a", "b", "--title", "t"]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["edit", "abc"]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["edit", "abc", "--title", "  "]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["edit", "abc", "--cover", "/nope/x.jpg"]).await;
+        assert_eq!(code, 2);
+    }
+
+    #[tokio::test]
+    async fn list_edit_without_session_is_15() {
+        let deps = deps_with(tempdir("nosess").join("cfg"));
+        let (code, out) = cli(&deps, &["list", "--json"]).await;
+        assert_eq!(code, 15, "want SESSION_EXPIRED(15)");
+        let env: serde_json::Value = serde_json::from_str(out.trim_end_matches('\n')).unwrap();
+        assert_eq!(env["error"]["code"], "SESSION_EXPIRED");
+        assert_eq!(env["error"]["stage"], "session_load");
+
+        let (code, out) = cli(&deps, &["edit", "abc", "--title", "标题一二三四", "--json"]).await;
+        assert_eq!(code, 15);
+        let env: serde_json::Value = serde_json::from_str(out.trim_end_matches('\n')).unwrap();
+        assert_eq!(env["error"]["code"], "SESSION_EXPIRED");
+    }
+
+    #[tokio::test]
+    async fn list_edit_flag_specs() {
+        // flag 规格：合法 flag 被接受（越过参数校验进入会话阶段 → 15）
+        let deps = deps_with(tempdir("flags").join("cfg"));
+        let (code, _) = cli(
+            &deps,
+            &["list", "--collection", "合集A", "--limit", "5", "--account", "default", "--headed", "--timeout", "60s", "--json"],
+        )
+        .await;
+        assert_eq!(code, 15, "合法 flag 应通过解析（无会话 → 15）");
+        let (code, _) = cli(
+            &deps,
+            &["edit", "abc", "--title", "标题一二三四", "--description", "d", "--dry-run", "--headed", "--timeout", "60s"],
+        )
+        .await;
+        assert_eq!(code, 15);
+        // 其他命令的 flag 不得串到 list/edit
+        let (code, _) = cli(&deps, &["list", "--tags", "x"]).await;
+        assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["edit", "abc", "--collection", "x"]).await;
+        assert_eq!(code, 2);
     }
 }

@@ -1,6 +1,6 @@
 ---
 name: sph
-description: 通过 sph CLI 操作微信视频号——发布/定时发布视频、查看账号与发布历史、解析并下载视频号分享链接、登录态与凭证排查。当用户提到视频号、sph、把视频发到视频号、下载视频号视频、WeChat Channels 时使用。
+description: 通过 sph CLI 操作微信视频号——发布/定时发布视频、列出已发布视频并按合集过滤、修改视频标题/描述/封面、查看账号与发布历史、解析并下载视频号分享链接、登录态与凭证排查。当用户提到视频号、sph、把视频发到视频号、下载视频号视频、WeChat Channels 时使用。
 ---
 
 # sph 视频号自动化
@@ -63,6 +63,19 @@ sph download "https://weixin.qq.com/sph/xxxx" -o out.mp4 --json
 - 退出码 9（文件已存在）→ 换路径或加 `--overwrite`（覆盖前确认）。
 - 只解析不下载用 `sph inspect "<url>" --json`。
 
+### 查看与修改已发布视频
+
+```bash
+sph list --json                          # 全部已发布视频（id 供 edit 使用）
+sph list --collection "机械系列" --json   # 按合集过滤
+sph edit <id> --title "新标题" --dry-run --json   # 先 dry-run（不提交）
+sph edit <id> --description "新描述" --cover c.jpg --json
+```
+
+- `edit` 是**真实对外动作**：先向用户复述将修改的字段与目标视频（用 `list` 确认 id 对应的标题），**等用户确认**；首次或不熟悉时先 `--dry-run`。
+- `--title` / `--description` / `--cover` 至少一个；平台限制（真实校准）：描述单次最多改 20 字、短标题 16 字（按新旧文本的差异区间计），`--title` 总长须 6..=16 字，且「仅支持修改一次，修改后不可撤回」——差异超限会在本地直接拒绝（退出码 2），提交被拒（退出码 16）时原样转述，不要重试。
+- 提交后自动复检（JSON 里 `verified`）；`verified=false` 表示已提交但新值未在列表中确认（可能生效延迟），用 `list` 复查，不要盲目再提交。
+
 ### 排查
 
 - `sph doctor --json`：环境健康检查（会话/凭证/补丁/浏览器），排查第一步。
@@ -81,7 +94,7 @@ sph download "https://weixin.qq.com/sph/xxxx" -o out.mp4 --json
 | 4 / 5 | 网络 / 上游失败（含限流） | 可退避重试 |
 | 6 / 7 / 8 | 视频不可用 / 媒体不支持 / 下载失败或超限 | 转述给用户，按 message 调整 |
 | 9 | 文件已存在 | 换输出路径或确认后 `--overwrite` |
-| 11 | 页面改版（selector 失效） | 转述给用户；可 `sph patch export` 改 selector 后 `patch import` 重试 |
+| 11 | 页面改版（selector 失效） | 转述给用户；可 `sph patch export` 改 selector 后 `patch import` 重试。list/edit 的页面 selector 与内部接口端点另有 `~/.sph/patches/videos.json`（`selectors` 节 + `api` 节），手工编辑后重试 |
 | 12 / 14 | 登录依赖缺失 / 登录失败或占用 | 转述，必要时让用户重跑 login |
 | 15 | 助手会话失效 | 提示用户重新 `sph login` 扫码 |
 | 16 | 平台拒绝（审核/校验未过） | **不要重试**，原样转述 |
@@ -92,5 +105,5 @@ sph download "https://weixin.qq.com/sph/xxxx" -o out.mp4 --json
 ## 安全边界（必须遵守）
 
 - **绝不读取、展示、传输 `~/.sph/` 下的文件内容**（凭证、浏览器 profile、轨迹均敏感）；只能通过 `sph` 命令交互。唯一例外是排查退出码 17 时的 crashes 现场，且仅限本地。
-- 发布、定时发表是真实对外动作：未经用户明确确认，不得去掉 `--dry-run` 实发或加 `--at` 定时。
+- 发布、定时发表是真实对外动作：未经用户明确确认，不得去掉 `--dry-run` 实发或加 `--at` 定时。`sph edit`（修改已发布视频）同此规则：先复述变更并确认，先 `--dry-run`。
 - `sph logout` / `sph logout --assistant` 会清除凭证/会话，执行前必须用户确认。

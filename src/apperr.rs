@@ -122,6 +122,8 @@ pub enum Stage {
     Schedule,
     Submit,
     Recovery,
+    // v2.1 视频管理
+    FetchList,
 }
 
 impl Stage {
@@ -148,6 +150,7 @@ impl Stage {
             Stage::Schedule => "schedule",
             Stage::Submit => "submit",
             Stage::Recovery => "recovery",
+            Stage::FetchList => "fetch_list",
         }
     }
 }

@@ -80,6 +80,11 @@ sph publish VIDEO.mp4 --title "标题" [选项]
 sph batch <dir> [--tags "..."] [--dry-run] [--json]
     # 目录内 .mp4 顺序发布；标题=文件名；同名 .jpg/.jpeg/.png 自动作封面
 
+# 视频管理
+sph list [--collection "名称"] [--limit N] [--json]      # 已发布视频列表
+sph edit <id> [--title T] [--description D] [--cover F] [--dry-run] [--json]
+    # 修改已发布视频（三字段至少其一；id 来自 list；先 dry-run 再实改）
+
 # 下载（v1 能力原样保留）
 sph download "https://weixin.qq.com/sph/xxxx" [-o out.mp4] [--overwrite] [--json]
 sph inspect  "https://weixin.qq.com/sph/xxxx" [--json]

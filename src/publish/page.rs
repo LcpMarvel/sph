@@ -1,8 +1,7 @@
 //! 发布页对象：校准后的真实平台 selector + wujie 子应用感知。
 //!
 //! 平台是无界（wujie）微前端：真实 UI 在 `wujie-app` 的 shadowRoot 内。
-//! 所有 DOM 操作的查询顺序：逐个 wujie 子应用查找 → 回退主文档，
-//! 因此离线 fixture（普通 DOM）与真实平台共用同一套代码。
+//! 底层 DOM/CDP 原语已上抽到 browser::wujie（2026-09），本文件只保留发布业务动作。
 //!
 //! selector 表集中于此（2026-09 校准自真实页面；改版后由 M3 补丁机制接管）。
 
@@ -10,16 +9,10 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::time::Duration;
 
-use chromiumoxide::cdp::browser_protocol::dom::{
-    EnableParams, GetDocumentParams, GetSearchResultsParams, NodeId, PerformSearchParams,
-    SetFileInputFilesParams,
-};
-use chromiumoxide::cdp::browser_protocol::input::{
-    DispatchMouseEventParams, DispatchMouseEventType, InsertTextParams, MouseButton,
-};
 use chromiumoxide::Page;
 
 use crate::apperr::{AppError, Code, Result, Stage};
+use crate::browser::wujie::{Wujie, ROOTS};
 use crate::upstream::sanitize_message;
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(90);
@@ -118,19 +111,10 @@ pub static DEFAULT_SELECTORS: Selectors = Selectors {
     ),
 };
 
-/// 子应用定位前缀：找到第一个含 __probe 选择器的 wujie 子应用文档，
-/// 找不到回退主文档（离线 fixture 即走此路径）。
-/// 全根遍历前缀：__roots 含所有 wujie 子应用文档与主文档。
-/// 平台弹窗与入口可能渲染在任意一层（wujie 水合前弹窗在主文档骨架）。
-const ROOTS: &str = r#"const __roots = [...document.querySelectorAll('wujie-app')]
-          .map(a => a.shadowRoot)
-          .filter(Boolean);
-        __roots.push(document);"#;
-
 pub struct PublishPage<'a> {
     page: &'a Page,
     pub selectors: &'a Selectors,
-    dom_enabled: std::cell::Cell<bool>,
+    wujie: Wujie<'a>,
 }
 
 impl<'a> PublishPage<'a> {
@@ -138,7 +122,7 @@ impl<'a> PublishPage<'a> {
         PublishPage {
             page,
             selectors,
-            dom_enabled: std::cell::Cell::new(false),
+            wujie: Wujie::new(page),
         }
     }
 
@@ -217,7 +201,7 @@ impl<'a> PublishPage<'a> {
           return clicked;
         }})()"#
         );
-        let res = self.run_js(&js, Stage::Navigate).await?;
+        let res = self.wujie.run_js(&js, Stage::Navigate).await?;
         Ok(res.as_deref() == Some("true"))
     }
 
@@ -229,13 +213,16 @@ impl<'a> PublishPage<'a> {
             self.require_logged_in().await?;
             self.try_click_video_menu().await;
             if self
+                .wujie
                 .sub_text_by_button(self.selectors.publish_entry.as_ref())
                 .await
                 && self
+                    .wujie
                     .try_click_button(self.selectors.publish_entry.as_ref())
                     .await
             {
                 return self
+                    .wujie
                     .wait_sub(
                         self.selectors.video_file_input.as_ref(),
                         timeout,
@@ -269,74 +256,28 @@ impl<'a> PublishPage<'a> {
           }}
         }})()"#
         );
-        let _ = self.run_js(&js, Stage::Navigate).await;
-    }
-
-    #[allow(clippy::too_many_lines)]
-    async fn try_click_button(&self, label: &str) -> bool {
-        let entry = label;
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          for (const sub of __roots) {{
-            for (const b of sub.querySelectorAll('button')) {{
-              if (vis(b) && (b.innerText||'').trim() === {entry:?}) {{
-                b.dispatchEvent(new MouseEvent('click', {{bubbles:true, cancelable:true}}));
-                return true;
-              }}
-            }}
-          }}
-          return false;
-        }})()"#
-        );
-        matches!(
-            self.run_js(&js, Stage::Navigate)
-                .await
-                .ok()
-                .flatten()
-                .as_deref(),
-            Some("true")
-        )
-    }
-
-    /// 子应用/主文档内是否存在指定文案的可见按钮。
-    async fn sub_text_by_button(&self, label: &str) -> bool {
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          for (const sub of __roots) {{
-            for (const b of sub.querySelectorAll('button')) {{
-              if (vis(b) && (b.innerText||'').trim() === {label:?}) return true;
-            }}
-          }}
-          return false;
-        }})()"#
-        );
-        match self.page.evaluate(js).await.ok() {
-            Some(res) => matches!(res.value(), Some(serde_json::Value::Bool(true))),
-            None => false,
-        }
+        let _ = self.wujie.run_js(&js, Stage::Navigate).await;
     }
 
     pub async fn upload_video(&self, video_path: &Path) -> Result<()> {
-        self.set_file_input(
-            self.selectors.video_file_input.as_ref(),
-            video_path,
-            Stage::Upload,
-        )
-        .await?;
-        self.wait_sub(
-            self.selectors.upload_done_indicator.as_ref(),
-            STEP_TIMEOUT,
-            Stage::Upload,
-        )
-        .await
+        self.wujie
+            .set_file_input(
+                self.selectors.video_file_input.as_ref(),
+                video_path,
+                Stage::Upload,
+            )
+            .await?;
+        self.wujie
+            .wait_sub(
+                self.selectors.upload_done_indicator.as_ref(),
+                STEP_TIMEOUT,
+                Stage::Upload,
+            )
+            .await
     }
 
     pub async fn fill_title(&self, title: &str) -> Result<()> {
-        self.type_into(
+        self.wujie.type_into(
             self.selectors.title_input.as_ref(),
             title,
             Stage::Metadata,
@@ -349,7 +290,7 @@ impl<'a> PublishPage<'a> {
         if description.is_empty() {
             return Ok(());
         }
-        self.insert_into(
+        self.wujie.insert_into(
             self.selectors.description_editor.as_ref(),
             description,
             Stage::Metadata,
@@ -363,10 +304,11 @@ impl<'a> PublishPage<'a> {
         }
         // 平台话题 = 描述编辑器内联 "#话题 + 空格" 触发自动完成。
         // 先确保编辑器聚焦（描述可能为空，此时光标也应在编辑器里）。
-        self.focus_element(self.selectors.description_editor.as_ref(), Stage::Metadata)
+        self.wujie
+            .focus_element(self.selectors.description_editor.as_ref(), Stage::Metadata)
             .await?;
         for tag in tags {
-            self.insert_text(
+            self.wujie.insert_text(
                 &format!("{} {}", self.selectors.topic_prefix.as_ref(), tag),
                 Stage::Metadata,
             )
@@ -377,7 +319,7 @@ impl<'a> PublishPage<'a> {
     }
 
     pub async fn set_cover(&self, cover_path: &Path) -> Result<()> {
-        self.set_file_input(
+        self.wujie.set_file_input(
             self.selectors.cover_file_input.as_ref(),
             cover_path,
             Stage::Cover,
@@ -404,7 +346,7 @@ impl<'a> PublishPage<'a> {
           return 'absent';
         }})()"#
         );
-        let state = self.run_js(&js, Stage::Declaration).await?;
+        let state = self.wujie.run_js(&js, Stage::Declaration).await?;
         match state.as_deref() {
             Some("checked") => Err(AppError::new(
                 Code::PublishRejected,
@@ -415,100 +357,14 @@ impl<'a> PublishPage<'a> {
         }
     }
 
-    /// 通用下拉选择：点 label 行的下拉区 → 弹层里点选项文案 → 回填校验。
-    ///
-    /// 点击必须走 CDP 真实鼠标事件：antd/weui 的 Select 监听 mousedown 序列，
-    /// JS 合成 dispatchEvent('click') 不会展开弹层（2026-09 合集失败实测）。
+    /// 通用下拉选择（委托 wujie 基座；CDP 真实鼠标事件，合成 click 展不开弹层）。
     pub async fn select_dropdown_option(
         &self,
         label: &str,
         option: &str,
         stage: Stage,
     ) -> Result<()> {
-        let lbl = serde_json::to_string(label).unwrap_or_default();
-        // 1) 找下拉触发区，返回中心点视口坐标（点击由 CDP 完成，不在 JS 里点）
-        let open_js = format!(
-            r#"(function(){{
-          {ROOTS}
-          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          const center = el => {{
-            const r = el.getBoundingClientRect();
-            return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
-          }};
-          for (const sub of __roots) {{
-            for (const lab of sub.querySelectorAll('.label, div, span')) {{
-              if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
-              const item = lab.closest('.form-item, [class*=form__item], [class*=form-item]') || lab.parentElement;
-              if (!item) continue;
-              const ph = item.querySelector('.select-placeholder, [class*=select], [class*=dropdown]');
-              if (ph && vis(ph)) {{ return center(ph); }}
-              if (vis(item)) {{ return center(item); }}
-            }}
-          }}
-          return '';
-        }})()"#
-        );
-        let coords = self.run_js(&open_js, stage).await?.unwrap_or_default();
-        if coords.is_empty() {
-            return Err(AppError::fmt(
-                Code::SchemaChanged,
-                stage,
-                format_args!("未找到下拉入口：{label}"),
-            ));
-        }
-        self.real_click_coords(&coords, stage).await?;
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        // 2) 在选项文案本身点击。外层 [class*=item] 可能是整块表单，
-        //    其 innerText 包含合集名，点它的中心却不会选择任何合集。
-        let opt = serde_json::to_string(option).unwrap_or_default();
-        let pick_js = format!(
-            r#"(function(){{
-          {ROOTS}
-          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          const center = el => {{
-            const r = el.getBoundingClientRect();
-            return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
-          }};
-          let best = null;
-          for (const sub of __roots) {{
-            for (const el of sub.querySelectorAll('li, [role=option], [class*=option], [class*=item], div, span')) {{
-              if (!vis(el)) continue;
-              const t = (el.innerText||'').trim();
-              if (t !== {opt} && !t.startsWith({opt} + ' ') && !t.startsWith({opt} + '\n')) continue;
-              const r = el.getBoundingClientRect();
-              if (r.width <= 0 || r.height <= 0) continue;
-              const score = (t === {opt} ? 0 : 1) * 1e9 + r.width * r.height;
-              if (!best || score < best.score) best = {{el, score}};
-            }}
-          }}
-          return best ? center(best.el) : '';
-        }})()"#
-        );
-        let picked = self.run_js(&pick_js, stage).await?.unwrap_or_default();
-        if picked.is_empty() {
-            return Err(AppError::fmt(
-                Code::SchemaChanged,
-                stage,
-                format_args!(
-                    "下拉「{label}」中没有选项「{option}」（账号可能没有可用的合集/链接/活动）"
-                ),
-            ));
-        }
-        self.real_click_coords(&picked, stage).await?;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-        loop {
-            if self.dropdown_has_option(label, option, stage).await? {
-                return Ok(());
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(AppError::fmt(
-                    Code::SchemaChanged,
-                    stage,
-                    format_args!("下拉「{label}」点击「{option}」后未回填到表单，停止提交"),
-                ));
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
+        self.wujie.select_dropdown_option(label, option, stage).await
     }
 
     /// 只读取表单触发区的值，不把展开菜单里的选项文案误认为已选择。
@@ -518,79 +374,7 @@ impl<'a> PublishPage<'a> {
         option: &str,
         stage: Stage,
     ) -> Result<()> {
-        if self.dropdown_has_option(label, option, stage).await? {
-            Ok(())
-        } else {
-            Err(AppError::fmt(
-                Code::SchemaChanged,
-                stage,
-                format_args!("下拉「{label}」在提交前不再显示「{option}」，停止提交"),
-            ))
-        }
-    }
-
-    async fn dropdown_has_option(&self, label: &str, option: &str, stage: Stage) -> Result<bool> {
-        let lbl = serde_json::to_string(label).unwrap_or_default();
-        let opt = serde_json::to_string(option).unwrap_or_default();
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          for (const sub of __roots) {{
-            for (const lab of sub.querySelectorAll('.label, div, span')) {{
-              if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
-              const item = lab.closest('.form-item, [class*=form__item], [class*=form-item]') || lab.parentElement;
-              if (!item) continue;
-              for (const field of item.querySelectorAll('.select-placeholder, [role=combobox], [class*=select__value], [class*=select-value], input')) {{
-                if (!vis(field)) continue;
-                const value = (field.value || field.innerText || '').trim();
-                if (value === {opt} || value.startsWith({opt} + ' ') || value.startsWith({opt} + '\n')) return true;
-              }}
-            }}
-          }}
-          return false;
-        }})()"#
-        );
-        Ok(self.run_js(&js, stage).await?.as_deref() == Some("true"))
-    }
-
-    /// 在 "x,y"（视口 CSS 像素）坐标处做一次 CDP 真实点击。
-    async fn real_click_coords(&self, coords: &str, stage: Stage) -> Result<()> {
-        let (x, y): (f64, f64) = coords
-            .split_once(',')
-            .and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?)))
-            .ok_or_else(|| AppError::new(Code::InternalError, stage, "点击坐标解析失败"))?;
-        for ty in [
-            DispatchMouseEventType::MousePressed,
-            DispatchMouseEventType::MouseReleased,
-        ] {
-            self.page
-                .execute(
-                    DispatchMouseEventParams::builder()
-                        .r#type(ty)
-                        .x(x)
-                        .y(y)
-                        .button(MouseButton::Left)
-                        .click_count(1)
-                        .build()
-                        .map_err(|e| {
-                            AppError::fmt(
-                                Code::InternalError,
-                                stage,
-                                format_args!("构造点击事件失败: {e}"),
-                            )
-                        })?,
-                )
-                .await
-                .map_err(|e| {
-                    AppError::fmt(
-                        Code::SchemaChanged,
-                        stage,
-                        format_args!("真实点击失败: {e}"),
-                    )
-                })?;
-        }
-        Ok(())
+        self.wujie.assert_dropdown_option(label, option, stage).await
     }
 
     /// 勾选"含 AI 生成内容"视频标注。
@@ -618,7 +402,7 @@ impl<'a> PublishPage<'a> {
           return false;
         }})()"#
         );
-        let expanded = self.run_js(&expand_js, Stage::Declaration).await?;
+        let expanded = self.wujie.run_js(&expand_js, Stage::Declaration).await?;
         if expanded.as_deref() != Some("true") {
             return Err(AppError::new(
                 Code::SchemaChanged,
@@ -652,7 +436,7 @@ impl<'a> PublishPage<'a> {
         }})()"#,
             mark_sel = mark_sel
         );
-        let state = self.run_js(&probe_js, Stage::Declaration).await?;
+        let state = self.wujie.run_js(&probe_js, Stage::Declaration).await?;
         if state.as_deref() == Some("checked") {
             return Ok(());
         }
@@ -677,6 +461,7 @@ impl<'a> PublishPage<'a> {
             mark_sel = mark_sel
         );
         let clicked = self
+            .wujie
             .run_js(&click_js, Stage::Declaration)
             .await?
             .unwrap_or_default();
@@ -687,10 +472,10 @@ impl<'a> PublishPage<'a> {
                 format_args!("未找到视频标注选项（关键词 {kw}）"),
             ));
         }
-        self.real_click_coords(&clicked, Stage::Declaration).await?;
+        self.wujie.real_click_coords(&clicked, Stage::Declaration).await?;
         tokio::time::sleep(Duration::from_millis(1200)).await;
         // 4) 校验
-        let state2 = self.run_js(&probe_js, Stage::Declaration).await?;
+        let state2 = self.wujie.run_js(&probe_js, Stage::Declaration).await?;
         if state2.as_deref() != Some("checked") {
             return Err(AppError::new(
                 Code::PublishRejected,
@@ -724,7 +509,7 @@ impl<'a> PublishPage<'a> {
           return false;
         }})()"#
         );
-        let clicked = self.run_js(&radio_js, Stage::Schedule).await?;
+        let clicked = self.wujie.run_js(&radio_js, Stage::Schedule).await?;
         if clicked.as_deref() != Some("true") {
             return Err(AppError::new(
                 Code::SchemaChanged,
@@ -747,7 +532,7 @@ impl<'a> PublishPage<'a> {
           return false;
         }})()"#
         );
-        let has_picker = self.run_js(&focus_js, Stage::Schedule).await?;
+        let has_picker = self.wujie.run_js(&focus_js, Stage::Schedule).await?;
         if has_picker.as_deref() == Some("true") {
             tokio::time::sleep(Duration::from_millis(1200)).await;
             // 翻月：读头部月份，差几个月点几次右箭头
@@ -766,6 +551,7 @@ impl<'a> PublishPage<'a> {
             }})()"#
             );
             let cur_month = self
+                .wujie
                 .run_js(&month_js, Stage::Schedule)
                 .await?
                 .and_then(|m| m.parse::<u8>().ok());
@@ -785,7 +571,7 @@ impl<'a> PublishPage<'a> {
                           return false;
                         }})()"#
                         );
-                        let _ = self.run_js(&click_js, Stage::Schedule).await;
+                        let _ = self.wujie.run_js(&click_js, Stage::Schedule).await;
                         tokio::time::sleep(Duration::from_millis(600)).await;
                     }
                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -809,7 +595,7 @@ impl<'a> PublishPage<'a> {
             }})()"#,
                 day = day.to_string()
             );
-            let day_clicked = self.run_js(&day_js, Stage::Schedule).await?;
+            let day_clicked = self.wujie.run_js(&day_js, Stage::Schedule).await?;
             if day_clicked.as_deref() != Some("true") {
                 return Err(AppError::fmt(
                     Code::ScheduleInvalid,
@@ -836,7 +622,7 @@ impl<'a> PublishPage<'a> {
           return false;
         }})()"#
         );
-        let focused = self.run_js(&prep_js, Stage::Schedule).await?;
+        let focused = self.wujie.run_js(&prep_js, Stage::Schedule).await?;
         if focused.as_deref() != Some("true") {
             return Err(AppError::new(
                 Code::SchemaChanged,
@@ -845,9 +631,9 @@ impl<'a> PublishPage<'a> {
             ));
         }
         tokio::time::sleep(Duration::from_millis(400)).await;
-        self.insert_text(&time_str, Stage::Schedule).await?;
+        self.wujie.insert_text(&time_str, Stage::Schedule).await?;
         // Tab blur 触发 onChange 同步
-        self.press_key("Tab", Stage::Schedule).await?;
+        self.wujie.press_key("Tab", Stage::Schedule).await?;
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         // 4) 校验回填值
@@ -862,6 +648,7 @@ impl<'a> PublishPage<'a> {
         }})()"#
         );
         let actual = self
+            .wujie
             .run_js(&verify_js, Stage::Schedule)
             .await?
             .unwrap_or_default();
@@ -871,34 +658,6 @@ impl<'a> PublishPage<'a> {
                 Stage::Schedule,
                 format_args!("时间回填校验失败：期望 {time_str}，实际 {actual}"),
             ));
-        }
-        Ok(())
-    }
-
-    /// 按一次键（keyDown+keyUp）。
-    async fn press_key(&self, key: &str, stage: Stage) -> Result<()> {
-        use chromiumoxide::cdp::browser_protocol::input::{
-            DispatchKeyEventParams, DispatchKeyEventType,
-        };
-        for t in [DispatchKeyEventType::KeyDown, DispatchKeyEventType::KeyUp] {
-            self.page
-                .execute(
-                    DispatchKeyEventParams::builder()
-                        .r#type(t)
-                        .key(key)
-                        .build()
-                        .map_err(|e| {
-                            AppError::fmt(
-                                Code::SchemaChanged,
-                                stage,
-                                format_args!("构造按键失败: {e}"),
-                            )
-                        })?,
-                )
-                .await
-                .map_err(|e| {
-                    AppError::fmt(Code::SchemaChanged, stage, format_args!("按键失败: {e}"))
-                })?;
         }
         Ok(())
     }
@@ -925,7 +684,7 @@ impl<'a> PublishPage<'a> {
         );
         let deadline = tokio::time::Instant::now() + STEP_TIMEOUT;
         loop {
-            match self.run_js(&state_js, Stage::Submit).await?.as_deref() {
+            match self.wujie.run_js(&state_js, Stage::Submit).await?.as_deref() {
                 Some("enabled") => break,
                 Some("absent") => {
                     return Err(AppError::new(
@@ -948,6 +707,7 @@ impl<'a> PublishPage<'a> {
         }
         // 2) 点击
         if !self
+            .wujie
             .try_click_button(self.selectors.submit_button.as_ref())
             .await
         {
@@ -971,12 +731,14 @@ impl<'a> PublishPage<'a> {
                 return Ok(());
             }
             if self
+                .wujie
                 .sub_exists(self.selectors.publish_success_indicator.as_ref())
                 .await
             {
                 return Ok(());
             }
             if let Some(text) = self
+                .wujie
                 .sub_text(self.selectors.publish_error_indicator.as_ref())
                 .await
             {
@@ -995,236 +757,5 @@ impl<'a> PublishPage<'a> {
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
-    }
-
-    // ── 内部原语 ────────────────────────────────────────────────
-
-    async fn run_js(&self, js: &str, stage: Stage) -> Result<Option<String>> {
-        let res = self.page.evaluate(js).await.map_err(|e| {
-            AppError::fmt(
-                Code::SchemaChanged,
-                stage,
-                format_args!("页面脚本执行失败: {e}"),
-            )
-        })?;
-        Ok(res.value().and_then(|v| match v {
-            serde_json::Value::String(s) => Some(s.clone()),
-            serde_json::Value::Bool(b) => Some(b.to_string()),
-            serde_json::Value::Number(n) => Some(n.to_string()),
-            _ => None,
-        }))
-    }
-
-    async fn wait_sub(&self, selector: &str, timeout: Duration, stage: Stage) -> Result<()> {
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            if self.sub_exists(selector).await {
-                return Ok(());
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(AppError::new(Code::Timeout, stage, "等待页面元素超时"));
-            }
-            tokio::time::sleep(Duration::from_millis(400)).await;
-        }
-    }
-
-    async fn sub_exists(&self, selector: &str) -> bool {
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          for (const sub of __roots) {{
-            if (sub.querySelector({selector:?})) return true;
-          }}
-          return false;
-        }})()"#
-        );
-        match self.page.evaluate(js).await.ok() {
-            Some(res) => matches!(res.value(), Some(serde_json::Value::Bool(true))),
-            None => false,
-        }
-    }
-
-    async fn sub_text(&self, selector: &str) -> Option<String> {
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          for (const sub of __roots) {{
-            const el = sub.querySelector({selector:?});
-            if (el) return (el.innerText||'').trim().slice(0,120);
-          }}
-          return '';
-        }})()"#
-        );
-        let res = self.page.evaluate(js).await.ok()?;
-        match res.value().and_then(|v| v.as_str().map(String::from)) {
-            Some(t) if !t.is_empty() => Some(t),
-            _ => None,
-        }
-    }
-
-    /// DOM.performSearch 全局搜索（穿透 shadow root）拿 nodeId。
-    async fn search_node(&self, query: &str, stage: Stage) -> Result<Option<NodeId>> {
-        if !self.dom_enabled.get() {
-            self.page
-                .execute(EnableParams::default())
-                .await
-                .map_err(|e| {
-                    AppError::fmt(
-                        Code::SchemaChanged,
-                        stage,
-                        format_args!("DOM agent 启用失败: {e}"),
-                    )
-                })?;
-            // 锚定文档快照，避免搜索命中已失效节点
-            self.page
-                .execute(GetDocumentParams::builder().depth(1).build())
-                .await
-                .map_err(|e| {
-                    AppError::fmt(
-                        Code::SchemaChanged,
-                        stage,
-                        format_args!("文档快照失败: {e}"),
-                    )
-                })?;
-            self.dom_enabled.set(true);
-        }
-        let search = self
-            .page
-            .execute(PerformSearchParams::new(query))
-            .await
-            .map_err(|e| {
-                AppError::fmt(
-                    Code::SchemaChanged,
-                    stage,
-                    format_args!("搜索上传框失败: {e}"),
-                )
-            })?;
-        if search.result_count == 0 {
-            return Ok(None);
-        }
-        let results = self
-            .page
-            .execute(GetSearchResultsParams::new(
-                search.search_id.clone(),
-                0,
-                search.result_count,
-            ))
-            .await
-            .map_err(|e| {
-                AppError::fmt(
-                    Code::SchemaChanged,
-                    stage,
-                    format_args!("读取搜索结果失败: {e}"),
-                )
-            })?;
-        Ok(results.node_ids.first().cloned())
-    }
-
-    async fn set_file_input(&self, query: &str, path: &Path, stage: Stage) -> Result<()> {
-        let node = self
-            .search_node(query, stage)
-            .await?
-            .ok_or_else(|| AppError::new(Code::SchemaChanged, stage, "未找到文件上传入口"))?;
-        let path_str = path.to_string_lossy().into_owned();
-        self.page
-            .execute(
-                SetFileInputFilesParams::builder()
-                    .files(vec![path_str])
-                    .node_id(node)
-                    .build()
-                    .map_err(|e| {
-                        AppError::fmt(
-                            Code::InternalError,
-                            stage,
-                            format_args!("构造上传请求失败: {e}"),
-                        )
-                    })?,
-            )
-            .await
-            .map_err(|e| {
-                AppError::fmt(
-                    Code::SchemaChanged,
-                    stage,
-                    format_args!("设置文件失败: {e}"),
-                )
-            })?;
-        Ok(())
-    }
-
-    /// 聚焦某元素（JS click）。
-    async fn focus_element(&self, selector: &str, stage: Stage) -> Result<()> {
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          for (const sub of __roots) {{
-            const el = sub.querySelector({selector:?});
-            if (el) {{ el.focus(); el.click(); return true; }}
-          }}
-          return false;
-        }})()"#
-        );
-        let ok = self.run_js(&js, stage).await?;
-        if ok.as_deref() != Some("true") {
-            return Err(AppError::new(Code::SchemaChanged, stage, "未找到输入框"));
-        }
-        Ok(())
-    }
-
-    /// CDP Input.insertText：等价 Playwright keyboard.type 的 Unicode 路径，
-    /// React 受控组件与 contenteditable 都按真实输入处理（DOM 赋值会被状态层丢弃）。
-    async fn insert_text(&self, text: &str, stage: Stage) -> Result<()> {
-        self.page
-            .execute(InsertTextParams::new(text))
-            .await
-            .map_err(|e| {
-                AppError::fmt(
-                    Code::SchemaChanged,
-                    stage,
-                    format_args!("文本输入失败: {e}"),
-                )
-            })?;
-        Ok(())
-    }
-
-    /// 向元素内插入文本：聚焦 + insertText。
-    async fn insert_into(&self, selector: &str, text: &str, stage: Stage) -> Result<()> {
-        self.focus_element(selector, stage).await?;
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        self.insert_text(text, stage).await
-    }
-
-    /// DOM 赋值 + 事件派发（受控表单标准驱动；非 ASCII 安全）。
-    async fn type_into(
-        &self,
-        selector: &str,
-        text: &str,
-        stage: Stage,
-        is_input: bool,
-    ) -> Result<()> {
-        let val = serde_json::to_string(text).unwrap_or_default();
-        let set_expr = if is_input {
-            format!("el.value = {val};")
-        } else {
-            format!("el.textContent = {val};")
-        };
-        let js = format!(
-            r#"(function(){{
-          {ROOTS}
-          for (const sub of __roots) {{
-            const el = sub.querySelector({selector:?});
-            if (!el) continue;
-            {set_expr}
-            el.dispatchEvent(new Event('input', {{bubbles: true}}));
-            el.dispatchEvent(new Event('change', {{bubbles: true}}));
-            return true;
-          }}
-          return false;
-        }})()"#
-        );
-        let ok = self.run_js(&js, stage).await?;
-        if ok.as_deref() != Some("true") {
-            return Err(AppError::new(Code::SchemaChanged, stage, "未找到输入框"));
-        }
-        Ok(())
     }
 }

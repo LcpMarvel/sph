@@ -429,7 +429,7 @@ pub(crate) async fn run_inner_with_backend(
     })
 }
 
-async fn navigate(
+pub(crate) async fn navigate(
     page: &chromiumoxide::Page,
     url: &str,
     cancel: &crate::http::CancelToken,

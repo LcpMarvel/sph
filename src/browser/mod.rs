@@ -3,6 +3,7 @@
 
 pub mod fetch;
 pub mod page_state;
+pub mod wujie;
 
 use std::io::Write;
 use std::path::Path;
