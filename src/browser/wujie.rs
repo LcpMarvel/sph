@@ -14,8 +14,8 @@ use chromiumoxide::cdp::browser_protocol::dom::{
     SetFileInputFilesParams,
 };
 use chromiumoxide::cdp::browser_protocol::input::{
-    DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams,
-    DispatchMouseEventType, InsertTextParams, MouseButton,
+    DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
+    InsertTextParams, MouseButton,
 };
 use chromiumoxide::Page;
 
@@ -421,7 +421,10 @@ impl<'a> Wujie<'a> {
           return '';
         }})()"#
         );
-        let coords = self.run_js(open_js.as_str(), stage).await?.unwrap_or_default();
+        let coords = self
+            .run_js(open_js.as_str(), stage)
+            .await?
+            .unwrap_or_default();
         if coords.is_empty() {
             return Err(AppError::fmt(
                 Code::SchemaChanged,
@@ -457,7 +460,10 @@ impl<'a> Wujie<'a> {
           return best ? center(best.el) : '';
         }})()"#
         );
-        let picked = self.run_js(pick_js.as_str(), stage).await?.unwrap_or_default();
+        let picked = self
+            .run_js(pick_js.as_str(), stage)
+            .await?
+            .unwrap_or_default();
         if picked.is_empty() {
             return Err(AppError::fmt(
                 Code::SchemaChanged,

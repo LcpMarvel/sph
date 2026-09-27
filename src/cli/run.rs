@@ -511,8 +511,12 @@ async fn run_list(
     for v in &result.videos {
         let created = v.created_at.as_deref().unwrap_or("-");
         let collection = v.collection.as_deref().unwrap_or("-");
-        writeln!(stdout, "{}\t{}\t[{}]\t{}", v.id, created, collection, v.title)
-            .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
+        writeln!(
+            stdout,
+            "{}\t{}\t[{}]\t{}",
+            v.id, created, collection, v.title
+        )
+        .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
     }
     if result.videos.is_empty() {
         writeln!(stdout, "没有已发布视频（或合集过滤后为空）")
@@ -545,6 +549,7 @@ async fn run_edit(
         title: cmd.flag("title").map(String::from),
         description: cmd.flag("description").map(String::from),
         cover: cmd.flag("cover").map(PathBuf::from),
+        cover_landscape: cmd.flag("cover-landscape").map(PathBuf::from),
         dry_run: cmd.bool_flag("dry-run"),
         headed: cmd.bool_flag("headed"),
         timeout,
@@ -583,7 +588,11 @@ async fn run_edit(
             "修改已提交（视频: {}，字段: {}{}）",
             result.id,
             result.changed.join("/"),
-            if result.verified { "，复检通过" } else { "" }
+            if result.verified {
+                "，复检通过"
+            } else {
+                ""
+            }
         )
     }
     .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
@@ -2366,6 +2375,8 @@ mod m5_videos_cli_tests {
         assert_eq!(code, 2);
         let (code, _) = cli(&deps, &["edit", "abc", "--cover", "/nope/x.jpg"]).await;
         assert_eq!(code, 2);
+        let (code, _) = cli(&deps, &["edit", "abc", "--cover-landscape", "/nope/x.jpg"]).await;
+        assert_eq!(code, 2);
     }
 
     #[tokio::test]
@@ -2389,13 +2400,44 @@ mod m5_videos_cli_tests {
         let deps = deps_with(tempdir("flags").join("cfg"));
         let (code, _) = cli(
             &deps,
-            &["list", "--collection", "合集A", "--limit", "5", "--account", "default", "--headed", "--timeout", "60s", "--json"],
+            &[
+                "list",
+                "--collection",
+                "合集A",
+                "--limit",
+                "5",
+                "--account",
+                "default",
+                "--headed",
+                "--timeout",
+                "60s",
+                "--json",
+            ],
         )
         .await;
         assert_eq!(code, 15, "合法 flag 应通过解析（无会话 → 15）");
         let (code, _) = cli(
             &deps,
-            &["edit", "abc", "--title", "标题一二三四", "--description", "d", "--dry-run", "--headed", "--timeout", "60s"],
+            &[
+                "edit",
+                "abc",
+                "--title",
+                "标题一二三四",
+                "--description",
+                "d",
+                "--dry-run",
+                "--headed",
+                "--timeout",
+                "60s",
+            ],
+        )
+        .await;
+        assert_eq!(code, 15);
+        let cover = tempdir("landscape-flag").join("cover.png");
+        std::fs::write(&cover, b"png").unwrap();
+        let (code, _) = cli(
+            &deps,
+            &["edit", "abc", "--cover-landscape", cover.to_str().unwrap()],
         )
         .await;
         assert_eq!(code, 15);

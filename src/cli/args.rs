@@ -69,6 +69,7 @@ fn cmd_flag_specs(command: &str) -> Vec<FlagSpec> {
             spec("title"),
             spec("description"),
             spec("cover"),
+            spec("cover-landscape"),
             spec("account"),
             bool_spec("dry-run"),
             bool_spec("headed"),

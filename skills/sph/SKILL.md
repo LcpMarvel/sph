@@ -70,11 +70,12 @@ sph list --json                          # 全部已发布视频（id 供 edit �
 sph list --collection "机械系列" --json   # 按合集过滤
 sph edit <id> --title "新标题" --dry-run --json   # 先 dry-run（不提交）
 sph edit <id> --description "新描述" --cover c.jpg --json
+sph edit <id> --cover portrait.png --cover-landscape landscape.png --dry-run --json
 ```
 
 - `edit` 是**真实对外动作**：先向用户复述将修改的字段与目标视频（用 `list` 确认 id 对应的标题），**等用户确认**；首次或不熟悉时先 `--dry-run`。
-- `--title` / `--description` / `--cover` 至少一个；平台限制（真实校准）：描述单次最多改 20 字、短标题 16 字（按新旧文本的差异区间计），`--title` 总长须 6..=16 字，且「仅支持修改一次，修改后不可撤回」——差异超限会在本地直接拒绝（退出码 2），提交被拒（退出码 16）时原样转述，不要重试。
-- 提交后自动复检（JSON 里 `verified`）；`verified=false` 表示已提交但新值未在列表中确认（可能生效延迟），用 `list` 复查，不要盲目再提交。
+- `--title` / `--description` / `--cover`（3:4）/ `--cover-landscape`（4:3）至少一个；两张封面可同时修改。平台限制（真实校准）：描述单次最多改 20 字、短标题 16 字（按新旧文本的差异区间计），`--title` 总长须 6..=16 字，且「仅支持修改一次，修改后不可撤回」——差异超限会在本地直接拒绝（退出码 2），提交被拒（退出码 16）时原样转述，不要重试。
+- 提交后自动复检文本字段（JSON 里 `verified`）；封面内容无法通过 `sph list` 独立核验，所以只要改了封面，`verified=false` 即使 `submitted=true`。不要盲目再提交，到视频号后台查看两种封面。
 
 ### 排查
 

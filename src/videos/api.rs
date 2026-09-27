@@ -92,13 +92,14 @@ async fn post_cgi(
         Ok(r) => r?,
         Err(_) => return Err(AppError::new(Code::Timeout, stage, "拉取视频数据超时")),
     };
-    let raw = raw.ok_or_else(|| {
-        AppError::new(Code::SchemaChanged, stage, "CGI 未返回可解析的内容")
-    })?;
-    let envelope: Value = serde_json::from_str(&raw).map_err(|_| {
-        AppError::new(Code::SchemaChanged, stage, "CGI 返回不是 JSON 信封")
-    })?;
-    let status = envelope.get("status").and_then(|v| v.as_i64()).unwrap_or(-1);
+    let raw =
+        raw.ok_or_else(|| AppError::new(Code::SchemaChanged, stage, "CGI 未返回可解析的内容"))?;
+    let envelope: Value = serde_json::from_str(&raw)
+        .map_err(|_| AppError::new(Code::SchemaChanged, stage, "CGI 返回不是 JSON 信封"))?;
+    let status = envelope
+        .get("status")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(-1);
     let body_text = envelope
         .get("body")
         .and_then(|v| v.as_str())
@@ -302,16 +303,17 @@ fn parse_collections_body(body: &str) -> Result<(Vec<CollectionInfo>, i64)> {
 fn parse_collection_feed_body(body: &str) -> Result<(Vec<VideoEntry>, i64)> {
     let root = parse_root(body, Stage::FetchList)?;
     let data = root.get("data").unwrap_or(&root);
-    let list = find_string_keyed_array(data, &["objectInfo", "object_info", "list"]).ok_or_else(|| {
-        AppError::fmt(
-            Code::SchemaChanged,
-            Stage::FetchList,
-            format_args!(
-                "合集成员响应中找不到 objectInfo（接口结构可能已变化）: {}",
-                sanitize_message(body)
-            ),
-        )
-    })?;
+    let list =
+        find_string_keyed_array(data, &["objectInfo", "object_info", "list"]).ok_or_else(|| {
+            AppError::fmt(
+                Code::SchemaChanged,
+                Stage::FetchList,
+                format_args!(
+                    "合集成员响应中找不到 objectInfo（接口结构可能已变化）: {}",
+                    sanitize_message(body)
+                ),
+            )
+        })?;
     let entries: Vec<VideoEntry> = list
         .iter()
         .filter_map(|oi| {
@@ -362,7 +364,13 @@ fn parse_page(body: &str, page_size: u32) -> Result<RawPage> {
             "列表数组存在但元素解析不出 id/title（接口结构可能已变化）",
         ));
     }
-    let has_more_keys = &["hasMore", "has_more", "hasNextPage", "continueFlag", "continue_flag"];
+    let has_more_keys = &[
+        "hasMore",
+        "has_more",
+        "hasNextPage",
+        "continueFlag",
+        "continue_flag",
+    ];
     let has_more = find_bool(&root, has_more_keys)
         .or_else(|| root.get("data").and_then(|d| find_bool(d, has_more_keys)))
         .unwrap_or(entries.len() >= page_size as usize && !entries.is_empty());
@@ -387,7 +395,11 @@ fn find_entry_array(root: &Value) -> Option<&Vec<Value>> {
                 for (k, val) in map {
                     if k.to_lowercase().contains("list") {
                         if let Value::Array(arr) = val {
-                            if arr.first().map(|e| extract_id(e).is_some()).unwrap_or(false) {
+                            if arr
+                                .first()
+                                .map(|e| extract_id(e).is_some())
+                                .unwrap_or(false)
+                            {
                                 return Some(arr);
                             }
                         }
@@ -398,7 +410,11 @@ fn find_entry_array(root: &Value) -> Option<&Vec<Value>> {
                 }
             }
             Value::Array(arr) => {
-                if arr.first().map(|e| extract_id(e).is_some()).unwrap_or(false) {
+                if arr
+                    .first()
+                    .map(|e| extract_id(e).is_some())
+                    .unwrap_or(false)
+                {
                     return Some(arr);
                 }
                 for item in arr {
@@ -451,7 +467,13 @@ fn parse_entry(v: &Value) -> Option<VideoEntry> {
     });
     let created_at = find_i64(
         v,
-        &["createTime", "createtime", "create_time", "createTimeMs", "create_time_ms"],
+        &[
+            "createTime",
+            "createtime",
+            "create_time",
+            "createTimeMs",
+            "create_time_ms",
+        ],
     )
     .and_then(format_epoch);
     Some(VideoEntry {
@@ -469,7 +491,15 @@ fn parse_entry(v: &Value) -> Option<VideoEntry> {
 
 /// id 候选字段：objectId / feedId / exportId / id（字符串或数字）。
 fn extract_id(v: &Value) -> Option<String> {
-    for key in ["objectId", "object_id", "feedId", "feed_id", "exportId", "export_id", "id"] {
+    for key in [
+        "objectId",
+        "object_id",
+        "feedId",
+        "feed_id",
+        "exportId",
+        "export_id",
+        "id",
+    ] {
         match v.get(key) {
             Some(Value::String(s)) if !s.is_empty() => return Some(s.clone()),
             Some(Value::Number(n)) => return Some(n.to_string()),
@@ -533,12 +563,17 @@ fn lookup<'a>(v: &'a Value, path: &str) -> Option<&'a Value> {
 
 /// epoch 秒/毫秒 → RFC3339。
 fn format_epoch(ts: i64) -> Option<String> {
-    let secs = if ts > 1_000_000_000_000 { ts / 1000 } else { ts };
+    let secs = if ts > 1_000_000_000_000 {
+        ts / 1000
+    } else {
+        ts
+    };
     if secs <= 0 {
         return None;
     }
     let t = time::OffsetDateTime::from_unix_timestamp(secs).ok()?;
-    t.format(&time::format_description::well_known::Rfc3339).ok()
+    t.format(&time::format_description::well_known::Rfc3339)
+        .ok()
 }
 
 #[cfg(test)]

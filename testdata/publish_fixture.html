@@ -52,8 +52,8 @@
   <div class="schedule-panel" hidden>
     <input placeholder="请选择发表时间" id="sched-date">
     <div class="weui-desktop-picker" hidden>
-      <div class="weui-desktop-picker__panel__hd">9月</div>
-      <div class="weui-desktop-picker__table"><a>23</a><a>24</a><a>25</a><a>26</a></div>
+      <div class="weui-desktop-picker__panel__hd"></div>
+      <div class="weui-desktop-picker__table"></div>
     </div>
     <input placeholder="请选择时间" id="sched-time">
   </div>
@@ -126,9 +126,12 @@ document.querySelectorAll('.weui-desktop-form__check-content').forEach(function 
 document.getElementById('sched-date').addEventListener('click', function () {
   document.querySelector('.weui-desktop-picker').hidden = false;
 });
+const fixtureScheduleDate = new Date(Date.now() + 2 * 3600 * 1000);
+document.querySelector('.weui-desktop-picker__panel__hd').innerText = (fixtureScheduleDate.getMonth() + 1) + '月';
+document.querySelector('.weui-desktop-picker__table').innerHTML = Array.from({length: 31}, (_, i) => '<a>' + (i + 1) + '</a>').join('');
 document.querySelectorAll('.weui-desktop-picker__table a').forEach(function (a) {
   a.addEventListener('click', function () {
-    document.getElementById('sched-date').value = '2026-09-' + (a.innerText.length < 2 ? '0' : '') + a.innerText;
+    document.getElementById('sched-date').value = fixtureScheduleDate.getFullYear() + '-' + String(fixtureScheduleDate.getMonth() + 1).padStart(2, '0') + '-' + a.innerText.padStart(2, '0');
     document.querySelector('.weui-desktop-picker').hidden = true;
   });
 });

@@ -111,6 +111,7 @@ pub(crate) mod tests {
             title: Some("新标题三个字".to_string()),
             description: Some("新描述".to_string()),
             cover: None,
+            cover_landscape: None,
             dry_run,
             headed: false,
             timeout: Duration::from_secs(60),

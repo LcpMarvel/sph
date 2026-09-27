@@ -277,25 +277,27 @@ impl<'a> PublishPage<'a> {
     }
 
     pub async fn fill_title(&self, title: &str) -> Result<()> {
-        self.wujie.type_into(
-            self.selectors.title_input.as_ref(),
-            title,
-            Stage::Metadata,
-            true,
-        )
-        .await
+        self.wujie
+            .type_into(
+                self.selectors.title_input.as_ref(),
+                title,
+                Stage::Metadata,
+                true,
+            )
+            .await
     }
 
     pub async fn fill_description(&self, description: &str) -> Result<()> {
         if description.is_empty() {
             return Ok(());
         }
-        self.wujie.insert_into(
-            self.selectors.description_editor.as_ref(),
-            description,
-            Stage::Metadata,
-        )
-        .await
+        self.wujie
+            .insert_into(
+                self.selectors.description_editor.as_ref(),
+                description,
+                Stage::Metadata,
+            )
+            .await
     }
 
     pub async fn fill_tags(&self, tags: &[String]) -> Result<()> {
@@ -308,23 +310,25 @@ impl<'a> PublishPage<'a> {
             .focus_element(self.selectors.description_editor.as_ref(), Stage::Metadata)
             .await?;
         for tag in tags {
-            self.wujie.insert_text(
-                &format!("{} {}", self.selectors.topic_prefix.as_ref(), tag),
-                Stage::Metadata,
-            )
-            .await?;
+            self.wujie
+                .insert_text(
+                    &format!("{} {}", self.selectors.topic_prefix.as_ref(), tag),
+                    Stage::Metadata,
+                )
+                .await?;
             tokio::time::sleep(Duration::from_millis(400)).await;
         }
         Ok(())
     }
 
     pub async fn set_cover(&self, cover_path: &Path) -> Result<()> {
-        self.wujie.set_file_input(
-            self.selectors.cover_file_input.as_ref(),
-            cover_path,
-            Stage::Cover,
-        )
-        .await
+        self.wujie
+            .set_file_input(
+                self.selectors.cover_file_input.as_ref(),
+                cover_path,
+                Stage::Cover,
+            )
+            .await
     }
 
     /// 原创声明：默认保守不勾。若已勾选则响亮报错交给人工确认。
@@ -364,7 +368,9 @@ impl<'a> PublishPage<'a> {
         option: &str,
         stage: Stage,
     ) -> Result<()> {
-        self.wujie.select_dropdown_option(label, option, stage).await
+        self.wujie
+            .select_dropdown_option(label, option, stage)
+            .await
     }
 
     /// 只读取表单触发区的值，不把展开菜单里的选项文案误认为已选择。
@@ -374,7 +380,9 @@ impl<'a> PublishPage<'a> {
         option: &str,
         stage: Stage,
     ) -> Result<()> {
-        self.wujie.assert_dropdown_option(label, option, stage).await
+        self.wujie
+            .assert_dropdown_option(label, option, stage)
+            .await
     }
 
     /// 勾选"含 AI 生成内容"视频标注。
@@ -472,7 +480,9 @@ impl<'a> PublishPage<'a> {
                 format_args!("未找到视频标注选项（关键词 {kw}）"),
             ));
         }
-        self.wujie.real_click_coords(&clicked, Stage::Declaration).await?;
+        self.wujie
+            .real_click_coords(&clicked, Stage::Declaration)
+            .await?;
         tokio::time::sleep(Duration::from_millis(1200)).await;
         // 4) 校验
         let state2 = self.wujie.run_js(&probe_js, Stage::Declaration).await?;
@@ -684,7 +694,12 @@ impl<'a> PublishPage<'a> {
         );
         let deadline = tokio::time::Instant::now() + STEP_TIMEOUT;
         loop {
-            match self.wujie.run_js(&state_js, Stage::Submit).await?.as_deref() {
+            match self
+                .wujie
+                .run_js(&state_js, Stage::Submit)
+                .await?
+                .as_deref()
+            {
                 Some("enabled") => break,
                 Some("absent") => {
                     return Err(AppError::new(

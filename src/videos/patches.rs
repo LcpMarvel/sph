@@ -221,15 +221,15 @@ pub fn merge(base: &'static Selectors, patch: &VideosPatch) -> Result<(Selectors
             Ok(())
         }
         fn check_body(body: &str, extra_placeholder: Option<&str>) -> Result<()> {
-            if !body.contains("__PAGE__")
-                || extra_placeholder.is_some_and(|p| !body.contains(p))
-            {
+            if !body.contains("__PAGE__") || extra_placeholder.is_some_and(|p| !body.contains(p)) {
                 return Err(AppError::fmt(
                     Code::InvalidArgument,
                     Stage::SessionLoad,
                     format_args!(
                         "api.*_body 必须包含 __PAGE__{} 占位",
-                        extra_placeholder.map(|p| format!(" 与 {p}")).unwrap_or_default()
+                        extra_placeholder
+                            .map(|p| format!(" 与 {p}"))
+                            .unwrap_or_default()
                     ),
                 ));
             }
@@ -274,7 +274,10 @@ pub fn merge(base: &'static Selectors, patch: &VideosPatch) -> Result<(Selectors
 }
 
 /// 便捷函数：加载并合并（无补丁时原样返回内置表）。
-pub fn load_and_merge(config_dir: &Path, base: &'static Selectors) -> Result<(Selectors, ApiConfig)> {
+pub fn load_and_merge(
+    config_dir: &Path,
+    base: &'static Selectors,
+) -> Result<(Selectors, ApiConfig)> {
     match load_patch(config_dir)? {
         Some(patch) => merge(base, &patch),
         None => merge(base, &VideosPatch::default()),
@@ -334,10 +337,9 @@ mod tests {
         assert_eq!(api.collection_feed_endpoint, "/cgi-bin/c/f");
 
         // 缺 __COLLECTION_ID__ 占位 → 响亮拒绝
-        let bad: VideosPatch = serde_json::from_str(
-            r#"{"api": {"collection_feed_body": "{\"pageNum\":__PAGE__}"}}"#,
-        )
-        .unwrap();
+        let bad: VideosPatch =
+            serde_json::from_str(r#"{"api": {"collection_feed_body": "{\"pageNum\":__PAGE__}"}}"#)
+                .unwrap();
         assert!(merge(&DEFAULT_SELECTORS, &bad).is_err());
 
         // 未知 api 字段 → serde deny_unknown_fields 拒绝

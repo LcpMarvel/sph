@@ -35,6 +35,7 @@ pub struct EditOptions {
     pub title: Option<String>,
     pub description: Option<String>,
     pub cover: Option<PathBuf>,
+    pub cover_landscape: Option<PathBuf>,
     /// 走完定位与表单填写但不提交。
     pub dry_run: bool,
     pub headed: bool,
@@ -110,7 +111,11 @@ pub(crate) fn diff_span(old: &str, new: &str) -> Option<SpanPlan> {
             new_text = format!("{}{}", new_text, old_chars[0]);
         }
     }
-    Some(SpanPlan { start, old_len, new_text })
+    Some(SpanPlan {
+        start,
+        old_len,
+        new_text,
+    })
 }
 
 /// 校验并规划一处文本修改。field 仅用于报错文案（"描述"/"短标题"）。
@@ -147,11 +152,15 @@ pub fn validate_edit(opts: &EditOptions) -> Result<()> {
             "视频 id 不能为空（用 sph list 查看可用 id）",
         ));
     }
-    if opts.title.is_none() && opts.description.is_none() && opts.cover.is_none() {
+    if opts.title.is_none()
+        && opts.description.is_none()
+        && opts.cover.is_none()
+        && opts.cover_landscape.is_none()
+    {
         return Err(AppError::new(
             Code::InvalidArgument,
             Stage::Arguments,
-            "未指定任何待修改字段（--title / --description / --cover 至少一个）",
+            "未指定任何待修改字段（--title / --description / --cover / --cover-landscape 至少一个）",
         ));
     }
     if let Some(t) = &opts.title {
@@ -177,6 +186,22 @@ pub fn validate_edit(opts: &EditOptions) -> Result<()> {
                 Code::InvalidArgument,
                 Stage::Arguments,
                 "封面文件不可用",
+            ));
+        }
+    }
+    if let Some(cover) = &opts.cover_landscape {
+        let meta = std::fs::metadata(cover).map_err(|_| {
+            AppError::fmt(
+                Code::InvalidArgument,
+                Stage::Arguments,
+                format_args!("横版封面文件不存在：{}", cover.display()),
+            )
+        })?;
+        if !meta.is_file() || meta.len() == 0 {
+            return Err(AppError::new(
+                Code::InvalidArgument,
+                Stage::Arguments,
+                "横版封面文件不可用",
             ));
         }
     }
@@ -243,7 +268,14 @@ async fn run_edit_inner(
     // 4) 逐字段修改（平台划词编辑链路）
     let mut changed: Vec<String> = Vec::new();
     if let Some(plan) = &title_plan {
-        werr(stderr, format_args!("修改短标题（区间替换 {} 字 → {} 字）…\n", plan.old_len, plan.new_text.chars().count()));
+        werr(
+            stderr,
+            format_args!(
+                "修改短标题（区间替换 {} 字 → {} 字）…\n",
+                plan.old_len,
+                plan.new_text.chars().count()
+            ),
+        );
         flow.apply_span_edit(
             session.selectors.edit_title_area.as_ref(),
             &entry.title,
@@ -255,7 +287,14 @@ async fn run_edit_inner(
         changed.push("title".into());
     }
     if let Some(plan) = &desc_plan {
-        werr(stderr, format_args!("修改描述（区间替换 {} 字 → {} 字）…\n", plan.old_len, plan.new_text.chars().count()));
+        werr(
+            stderr,
+            format_args!(
+                "修改描述（区间替换 {} 字 → {} 字）…\n",
+                plan.old_len,
+                plan.new_text.chars().count()
+            ),
+        );
         flow.apply_span_edit(
             session.selectors.edit_desc_area.as_ref(),
             entry.description.as_deref().unwrap_or_default(),
@@ -268,8 +307,13 @@ async fn run_edit_inner(
     }
     if let Some(cover) = &opts.cover {
         werr(stderr, format_args!("修改封面…\n"));
-        flow.edit_set_cover(cover).await?;
+        flow.edit_set_cover(cover, false).await?;
         changed.push("cover".into());
+    }
+    if let Some(cover) = &opts.cover_landscape {
+        werr(stderr, format_args!("修改横版封面…\n"));
+        flow.edit_set_cover(cover, true).await?;
+        changed.push("cover_landscape".into());
     }
 
     if changed.is_empty() {
@@ -304,9 +348,13 @@ async fn run_edit_inner(
     flow.submit_edit().await?;
 
     // 6) 复检：重新拉列表对照（失败不改写已提交事实）
-    let verified = match find_by_id(session, &opts.id).await {
+    let text_verified = match find_by_id(session, &opts.id).await {
         Ok(after) => {
-            let title_ok = opts.title.as_ref().map(|t| *t == after.title).unwrap_or(true);
+            let title_ok = opts
+                .title
+                .as_ref()
+                .map(|t| *t == after.title)
+                .unwrap_or(true);
             let desc_ok = opts
                 .description
                 .as_ref()
@@ -316,11 +364,17 @@ async fn run_edit_inner(
         }
         Err(_) => false,
     };
+    // The list API exposes no dependable content check for either cover variant.
+    let verified = text_verified && opts.cover.is_none() && opts.cover_landscape.is_none();
     if !verified {
-        werr(
-            stderr,
-            format_args!("警告：已提交但复检未能确认新值生效（平台可能有生效延迟），请用 sph list 人工确认。\n"),
-        );
+        if opts.cover.is_some() || opts.cover_landscape.is_some() {
+            werr(
+                stderr,
+                format_args!("已提交；封面内容无法通过 sph list 独立核验，请在视频号后台查看。\n"),
+            );
+        } else {
+            werr(stderr, format_args!("警告：已提交但复检未能确认新值生效（平台可能有生效延迟），请用 sph list 人工确认。\n"));
+        }
     }
 
     Ok(EditResult {
@@ -342,32 +396,56 @@ mod tests {
         assert_eq!(diff_span("abc", "abc"), None);
         assert_eq!(
             diff_span("这集从零件出发", "这集从齿轮出发"),
-            Some(SpanPlan { start: 3, old_len: 2, new_text: "齿轮".into() })
+            Some(SpanPlan {
+                start: 3,
+                old_len: 2,
+                new_text: "齿轮".into()
+            })
         );
         // 纯插入扩为含前字符的替换
         assert_eq!(
             diff_span("abc", "abXc"),
-            Some(SpanPlan { start: 1, old_len: 1, new_text: "bX".into() })
+            Some(SpanPlan {
+                start: 1,
+                old_len: 1,
+                new_text: "bX".into()
+            })
         );
         // 纯删除
         assert_eq!(
             diff_span("abXc", "abc"),
-            Some(SpanPlan { start: 2, old_len: 1, new_text: String::new() })
+            Some(SpanPlan {
+                start: 2,
+                old_len: 1,
+                new_text: String::new()
+            })
         );
         // 全替换
         assert_eq!(
             diff_span("aaa", "bbb"),
-            Some(SpanPlan { start: 0, old_len: 3, new_text: "bbb".into() })
+            Some(SpanPlan {
+                start: 0,
+                old_len: 3,
+                new_text: "bbb".into()
+            })
         );
         // 前后缀重叠不越界（old 是 new 的子串，首字符插入）
         assert_eq!(
             diff_span("aa", "aaaa"),
-            Some(SpanPlan { start: 1, old_len: 1, new_text: "aaa".into() })
+            Some(SpanPlan {
+                start: 1,
+                old_len: 1,
+                new_text: "aaa".into()
+            })
         );
         // 开头插入 → 扩为含首字符的替换
         assert_eq!(
             diff_span("bc", "Xbc"),
-            Some(SpanPlan { start: 0, old_len: 1, new_text: "Xb".into() })
+            Some(SpanPlan {
+                start: 0,
+                old_len: 1,
+                new_text: "Xb".into()
+            })
         );
     }
 
@@ -375,7 +453,14 @@ mod tests {
     fn plan_text_edit_budget() {
         // 预算内
         let p = plan_text_edit("描述", "abcde", "abXYe", 20).unwrap();
-        assert_eq!(p, Some(SpanPlan { start: 2, old_len: 2, new_text: "XY".into() }));
+        assert_eq!(
+            p,
+            Some(SpanPlan {
+                start: 2,
+                old_len: 2,
+                new_text: "XY".into()
+            })
+        );
         // 无差异 → None
         assert_eq!(plan_text_edit("描述", "abc", "abc", 20).unwrap(), None);
         // 旧区间超预算

@@ -72,20 +72,16 @@ pub async fn run_list(
             // 找不到时列出可用合集名帮助用户纠正。
             let want = want.trim();
             let collections = fetch_collections(&wujie, &api, t).await?;
-            let col = collections
-                .iter()
-                .find(|c| c.name == want)
-                .ok_or_else(|| {
-                    let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
-                    AppError::fmt(
-                        Code::InvalidArgument,
-                        Stage::Arguments,
-                        format_args!("合集「{want}」不存在（可用：{}）", names.join("、")),
-                    )
-                })?;
+            let col = collections.iter().find(|c| c.name == want).ok_or_else(|| {
+                let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+                AppError::fmt(
+                    Code::InvalidArgument,
+                    Stage::Arguments,
+                    format_args!("合集「{want}」不存在（可用：{}）", names.join("、")),
+                )
+            })?;
             werr(&stderr, format_args!("按合集「{}」过滤…\n", col.name));
-            let mut videos =
-                fetch_collection_feeds(&wujie, &api, &col.id, limit, t).await?;
+            let mut videos = fetch_collection_feeds(&wujie, &api, &col.id, limit, t).await?;
             for v in &mut videos {
                 v.collection = Some(col.name.clone());
             }

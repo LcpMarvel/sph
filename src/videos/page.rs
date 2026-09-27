@@ -204,7 +204,11 @@ impl<'a> VideoManagePage<'a> {
         let deadline = tokio::time::Instant::now() + STEP_TIMEOUT;
         loop {
             self.require_logged_in().await?;
-            if self.wujie.sub_exists(self.selectors.edit_page_ready.as_ref()).await {
+            if self
+                .wujie
+                .sub_exists(self.selectors.edit_page_ready.as_ref())
+                .await
+            {
                 return Ok(());
             }
             if tokio::time::Instant::now() >= deadline {
@@ -314,7 +318,11 @@ impl<'a> VideoManagePage<'a> {
             start = start,
             end = start + old_len,
         );
-        let out = self.wujie.run_js(&select_js, Stage::Metadata).await?.unwrap_or_default();
+        let out = self
+            .wujie
+            .run_js(&select_js, Stage::Metadata)
+            .await?
+            .unwrap_or_default();
         match out.as_str() {
             "y" => {}
             "content-mismatch" => {
@@ -335,13 +343,26 @@ impl<'a> VideoManagePage<'a> {
 
         // 2) 等划词弹层可见
         let pop_js = Self::visible_js(self.selectors.edit_pop_visible.as_ref());
-        self.poll_js(&pop_js, Duration::from_secs(10), Stage::Metadata, "划词弹层")
-            .await?;
+        self.poll_js(
+            &pop_js,
+            Duration::from_secs(10),
+            Stage::Metadata,
+            "划词弹层",
+        )
+        .await?;
 
         // 3) 点「修改」或「删除」
-        let label = if new_text.is_empty() { "删除" } else { "修改" };
+        let label = if new_text.is_empty() {
+            "删除"
+        } else {
+            "修改"
+        };
         let pos = self
-            .pos_of(self.selectors.edit_pop_items.as_ref(), label, Stage::Metadata)
+            .pos_of(
+                self.selectors.edit_pop_items.as_ref(),
+                label,
+                Stage::Metadata,
+            )
             .await?
             .ok_or_else(|| {
                 AppError::fmt(
@@ -355,8 +376,13 @@ impl<'a> VideoManagePage<'a> {
         if !new_text.is_empty() {
             // 4) 等输入框 → 填替换文字（handleDescInput 直接读 DOM value）
             let input_js = Self::visible_js(self.selectors.edit_input.as_ref());
-            self.poll_js(&input_js, Duration::from_secs(10), Stage::Metadata, "替换输入框")
-                .await?;
+            self.poll_js(
+                &input_js,
+                Duration::from_secs(10),
+                Stage::Metadata,
+                "替换输入框",
+            )
+            .await?;
             let fill_js = format!(
                 r#"(function(){{
               {ROOTS}
@@ -374,7 +400,13 @@ impl<'a> VideoManagePage<'a> {
             }})()"#,
                 input = self.selectors.edit_input.as_ref(),
             );
-            if self.wujie.run_js(&fill_js, Stage::Metadata).await?.as_deref() != Some("y") {
+            if self
+                .wujie
+                .run_js(&fill_js, Stage::Metadata)
+                .await?
+                .as_deref()
+                != Some("y")
+            {
                 return Err(AppError::new(
                     Code::SchemaChanged,
                     Stage::Metadata,
@@ -384,10 +416,18 @@ impl<'a> VideoManagePage<'a> {
             tokio::time::sleep(Duration::from_millis(200)).await;
             // 5) 点输入框旁「修改」提交这条编辑动作
             let pos = self
-                .pos_of(self.selectors.edit_input_buttons.as_ref(), "修改", Stage::Metadata)
+                .pos_of(
+                    self.selectors.edit_input_buttons.as_ref(),
+                    "修改",
+                    Stage::Metadata,
+                )
                 .await?
                 .ok_or_else(|| {
-                    AppError::new(Code::SchemaChanged, Stage::Metadata, "未找到输入框的「修改」按钮")
+                    AppError::new(
+                        Code::SchemaChanged,
+                        Stage::Metadata,
+                        "未找到输入框的「修改」按钮",
+                    )
                 })?;
             self.wujie.real_click_coords(&pos, Stage::Metadata).await?;
         }
@@ -395,7 +435,12 @@ impl<'a> VideoManagePage<'a> {
         // 6) 校验编辑动作已计入（徽标出现）+ 清掉残留选区
         let badge_js = Self::visible_js(self.selectors.edit_edited_badge.as_ref());
         if let Err(e) = self
-            .poll_js(&badge_js, Duration::from_secs(10), Stage::Metadata, "已修改字数徽标")
+            .poll_js(
+                &badge_js,
+                Duration::from_secs(10),
+                Stage::Metadata,
+                "已修改字数徽标",
+            )
             .await
         {
             // 诊断：dump 当前编辑页关键状态（排查 headless 差异）
@@ -413,7 +458,11 @@ impl<'a> VideoManagePage<'a> {
               return out.join(' | ') || '(空)';
             }})()"#
             );
-            let dump = self.wujie.run_js(&dump_js, Stage::Metadata).await?.unwrap_or_default();
+            let dump = self
+                .wujie
+                .run_js(&dump_js, Stage::Metadata)
+                .await?
+                .unwrap_or_default();
             return Err(AppError::fmt(
                 e.code,
                 e.stage,
@@ -422,42 +471,76 @@ impl<'a> VideoManagePage<'a> {
         }
         let _ = self
             .wujie
-            .run_js("window.getSelection() && window.getSelection().removeAllRanges(), 'y'", Stage::Metadata)
+            .run_js(
+                "window.getSelection() && window.getSelection().removeAllRanges(), 'y'",
+                Stage::Metadata,
+            )
             .await;
         Ok(())
     }
 
-    /// 改封面：等预览图就绪 → 点第一个「编辑」（个人主页卡片 3:4）→
-    /// 设置文件框 → 点编辑器「确认」回到编辑页。
-    pub async fn edit_set_cover(&self, cover_path: &Path) -> Result<()> {
+    /// 改封面：等预览图就绪 → 编辑相应比例 → 设置文件 → 确认。
+    pub async fn edit_set_cover(&self, cover_path: &Path, landscape: bool) -> Result<()> {
         // 预览图生成中点不开编辑器（edit5 实测），等到「生成中」提示消失
         let ready_js = r#"(function(){
           const roots = [...document.querySelectorAll('wujie-app')].map(a => a.shadowRoot).filter(Boolean);
           roots.push(document);
           for (const r of roots) {
-            for (const el of r.querySelectorAll('.img-popover-wrap .weui-desktop-popover__desc')) {
-              if ((el.innerText || '').includes('生成中')) return '';
+            for (const el of r.querySelectorAll('.img-popover-wrap .weui-desktop-popover__desc, .vertical-cover-wrap .loading-wrap, .horizon-cover-wrap .loading-wrap')) {
+              if ((el.innerText || '').includes('生成中') || (el.classList.contains('loading-wrap') && (el.offsetWidth || el.offsetHeight || el.getClientRects().length))) return '';
             }
           }
           return 'y';
         })()"#;
-        self.poll_js(ready_js, COVER_READY_TIMEOUT, Stage::Cover, "封面预览图生成")
-            .await?;
+        self.poll_js(
+            ready_js,
+            COVER_READY_TIMEOUT,
+            Stage::Cover,
+            "封面预览图生成",
+        )
+        .await?;
 
+        let scoped_button = if landscape {
+            ".horizon-cover-wrap .edit-btn"
+        } else {
+            ".vertical-cover-wrap .edit-btn"
+        };
         let pos = self
-            .pos_of(self.selectors.edit_cover_button.as_ref(), "编辑", Stage::Cover)
+            .pos_of(scoped_button, "编辑", Stage::Cover)
             .await?
             .ok_or_else(|| {
                 AppError::new(Code::SchemaChanged, Stage::Cover, "未找到封面「编辑」按钮")
             })?;
         self.wujie.real_click_coords(&pos, Stage::Cover).await?;
 
+        if landscape {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let pos = self
+                .pos_of(
+                    ".ant-popover .btn-directly-edit button",
+                    "直接编辑",
+                    Stage::Cover,
+                )
+                .await?
+                .ok_or_else(|| {
+                    AppError::new(
+                        Code::SchemaChanged,
+                        Stage::Cover,
+                        "横版封面推荐浮层未找到「直接编辑」",
+                    )
+                })?;
+            self.wujie.real_click_coords(&pos, Stage::Cover).await?;
+        }
         let dlg_js = Self::visible_js(self.selectors.edit_cover_dialog.as_ref());
         self.poll_js(&dlg_js, Duration::from_secs(15), Stage::Cover, "封面编辑器")
             .await?;
 
         self.wujie
-            .set_file_input(self.selectors.edit_cover_file_input.as_ref(), cover_path, Stage::Cover)
+            .set_file_input(
+                self.selectors.edit_cover_file_input.as_ref(),
+                cover_path,
+                Stage::Cover,
+            )
             .await?;
 
         // 上传处理（裁剪步骤渲染）给足时间再点确认
@@ -470,7 +553,11 @@ impl<'a> VideoManagePage<'a> {
             )
             .await?
             .ok_or_else(|| {
-                AppError::new(Code::SchemaChanged, Stage::Cover, "封面编辑器里未找到「确认」按钮")
+                AppError::new(
+                    Code::SchemaChanged,
+                    Stage::Cover,
+                    "封面编辑器里未找到「确认」按钮",
+                )
             })?;
         self.wujie.real_click_coords(&pos, Stage::Cover).await?;
 
@@ -495,7 +582,11 @@ impl<'a> VideoManagePage<'a> {
     pub async fn submit_edit(&self) -> Result<()> {
         // 1) 页面级「完成」（不在对话框内）
         let pos = self
-            .pos_of("button", self.selectors.edit_done_label.as_ref(), Stage::Submit)
+            .pos_of(
+                "button",
+                self.selectors.edit_done_label.as_ref(),
+                Stage::Submit,
+            )
             .await?
             .ok_or_else(|| {
                 AppError::new(Code::SchemaChanged, Stage::Submit, "未找到「完成」按钮")
@@ -530,7 +621,11 @@ impl<'a> VideoManagePage<'a> {
             )
             .await?
             .ok_or_else(|| {
-                AppError::new(Code::SchemaChanged, Stage::Submit, "确认弹窗里未找到提交按钮")
+                AppError::new(
+                    Code::SchemaChanged,
+                    Stage::Submit,
+                    "确认弹窗里未找到提交按钮",
+                )
             })?;
         self.wujie.real_click_coords(&pos, Stage::Submit).await?;
 
@@ -556,7 +651,11 @@ impl<'a> VideoManagePage<'a> {
         );
         let deadline = tokio::time::Instant::now() + STEP_TIMEOUT;
         loop {
-            let tips = self.wujie.run_js(&tips_js, Stage::Submit).await?.unwrap_or_default();
+            let tips = self
+                .wujie
+                .run_js(&tips_js, Stage::Submit)
+                .await?
+                .unwrap_or_default();
             if tips.lines().any(|t| t.contains("修改成功")) {
                 return Ok(());
             }

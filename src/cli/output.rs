@@ -125,8 +125,8 @@ pub const HELP_TEXT: &str = "sph — 微信视频号本地自动化工具（v2�
   sph accounts                                查看本地账号会话状态（不联网）
   sph history [--limit N] [--json]            查看发布恢复轨迹
   sph list [--collection \"名称\"] [--limit N] [--json]   列出已发布视频
-  sph edit <id> [--title T] [--description D] [--cover F] [--dry-run] [--json]
-                                              修改已发布视频（三字段至少其一）
+  sph edit <id> [--title T] [--description D] [--cover F] [--cover-landscape F] [--dry-run] [--json]
+                                              修改已发布视频（至少指定一项）
   sph doctor [--json]                         健康检查（会话/凭证/补丁/浏览器）
   sph patch export [--output F]               导出 selector 补丁
   sph patch import <file>                     导入补丁（未知字段报错）
