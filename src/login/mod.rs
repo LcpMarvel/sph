@@ -108,7 +108,7 @@ pub async fn run(store: &auth::Store, interactive: bool, opts: Options) -> Resul
         return Err(AppError::new(
             Code::InteractiveRequired,
             Stage::LoginBrowser,
-            "login 需要交互式终端；请在本机终端中运行 sph login",
+            "login 需要交互式终端；请在本机终端中运行 sph login --yuanbao",
         ));
     }
 
@@ -329,7 +329,7 @@ async fn build_credentials(
         return Err(AppError::new(
             Code::AuthRequired,
             Stage::LoginCapture,
-            "未采集到元宝 Cookie；请重新执行 sph login 并完成登录",
+            "未采集到元宝 Cookie；请重新执行 sph login --yuanbao 并完成登录",
         ));
     }
     let parts: Vec<String> = cookies

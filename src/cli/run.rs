@@ -606,7 +606,7 @@ fn run_auth_status(stdout: &mut dyn Write, deps: &Deps) -> Result<()> {
     if !store.exists() {
         writeln!(stdout, "状态: 未配置凭证")
             .and_then(|_| writeln!(stdout, "配置目录: {}", store.dir.display()))
-            .and_then(|_| writeln!(stdout, "如需登录请执行: sph login"))
+            .and_then(|_| writeln!(stdout, "如需登录请执行: sph login --yuanbao"))
             .map_err(|_| AppError::new(Code::IOError, Stage::Arguments, "无法写出结果"))?;
         return Ok(());
     }
@@ -1652,15 +1652,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn inspect_requires_credentials() {
+    async fn download_and_inspect_require_yuanbao_credentials() {
         let td = new_test_deps();
-        let (code, out, err_out) =
-            run_cli(&td.inner, "", &["inspect", "https://weixin.qq.com/sph/a"]).await;
-        assert_eq!(code, 3);
-        assert!(
-            (err_out + &out).contains("sph login"),
-            "message should point to sph login"
-        );
+        for command in ["download", "inspect"] {
+            let (code, out, err_out) =
+                run_cli(&td.inner, "", &[command, "https://weixin.qq.com/sph/a"]).await;
+            assert_eq!(code, 3);
+            assert!((err_out + &out).contains("sph login --yuanbao"));
+        }
     }
 
     #[tokio::test]
@@ -1682,6 +1681,10 @@ mod tests {
         let env: serde_json::Value = serde_json::from_str(trimmed).unwrap();
         assert_eq!(env["ok"], false);
         assert_eq!(env["error"]["code"], "AUTH_REQUIRED");
+        assert!(env["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("sph login --yuanbao"));
     }
 
     #[tokio::test]

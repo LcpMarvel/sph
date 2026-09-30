@@ -266,7 +266,7 @@ fn map_api_status(status: u16, stage: Stage, what: &str) -> Result<()> {
         401 => Err(AppError::new(
             Code::InvalidCredentials,
             stage,
-            "登录凭证不可用，请执行 sph login 重新登录。",
+            "登录凭证不可用，请执行 sph login --yuanbao 重新登录。",
         )),
         403 => Err(AppError::new(
             Code::AccessDenied,
@@ -1082,6 +1082,9 @@ mod tests {
             let err = client.resolve(TEST_SHARE, &fake_creds()).await.unwrap_err();
             assert_eq!(err.code, case.want_code, "{}: code", case.name);
             assert_eq!(err.stage, case.want_stage, "{}: stage", case.name);
+            if err.code == Code::InvalidCredentials {
+                assert!(err.message.contains("sph login --yuanbao"));
+            }
             for s in secrets {
                 assert!(
                     !err.message.contains(s),

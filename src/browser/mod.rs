@@ -23,8 +23,7 @@ pub async fn launch(
     profile_dir: &Path,
     headed: bool,
 ) -> Result<(Browser, chromiumoxide::Page)> {
-    // 视口：chromiumoxide 默认对每个页面下发 800x600 设备仿真（页面布局锁死、
-    // 窗口拉大出现大片空白），必须显式覆盖为合理尺寸。
+    // 可见窗口使用原生视口，随窗口缩放；无头模式保留固定布局尺寸。
     let viewport = chromiumoxide::handler::viewport::Viewport {
         width: 1440,
         height: 900,
@@ -37,7 +36,7 @@ pub async fn launch(
         .chrome_executable(chrome_path)
         .user_data_dir(profile_dir)
         .window_size(1440, 900)
-        .viewport(viewport)
+        .viewport(if headed { None } else { Some(viewport) })
         // 库默认参数带 --enable-automation（"自动化软件控制"横幅）与 --lang=en_US
         // （触发 Google 翻译气泡），整体禁用后按需自管。
         .disable_default_args()
@@ -116,6 +115,66 @@ pub async fn wait_for_selector(
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chromiumoxide::cdp::browser_protocol::browser::{
+        Bounds, GetWindowForTargetParams, SetWindowBoundsParams,
+    };
+
+    #[tokio::test]
+    #[ignore = "需要 SPH_CHROME 和桌面环境，会短暂打开临时浏览器窗口"]
+    async fn viewport_follows_headed_window_only() {
+        let chrome = std::env::var("SPH_CHROME").expect("请设置 SPH_CHROME");
+        for headed in [true, false] {
+            let profile = std::env::temp_dir()
+                .join(format!("sph-viewport-test-{:016x}", rand::random::<u64>()));
+            let (mut browser, page) = launch(Path::new(&chrome), &profile, headed).await.unwrap();
+            let window = browser
+                .execute(GetWindowForTargetParams {
+                    target_id: Some(page.target_id().clone()),
+                })
+                .await
+                .unwrap()
+                .result;
+            let mut widths = Vec::new();
+            for width in [1000, 1200] {
+                browser
+                    .execute(SetWindowBoundsParams::new(
+                        window.window_id,
+                        Bounds::builder().width(width).height(750).build(),
+                    ))
+                    .await
+                    .unwrap();
+                let size = page
+                    .evaluate(format!(
+                        "new Promise(resolve => {{ const start = Date.now(); const poll = () => {{ \
+                         if (window.innerWidth === {width} || Date.now() - start > 2000) \
+                         resolve([window.innerWidth, window.innerHeight]); \
+                         else setTimeout(poll, 50); }}; poll(); }})"
+                    ))
+                    .await
+                    .unwrap()
+                    .into_value::<Vec<i64>>()
+                    .unwrap();
+                eprintln!("headed={headed}, window width={width}, viewport={size:?}");
+                widths.push(size[0]);
+            }
+            browser.close().await.unwrap();
+            browser.wait().await.unwrap();
+            std::fs::remove_dir_all(profile).unwrap();
+            assert_eq!(
+                widths,
+                if headed {
+                    vec![1000, 1200]
+                } else {
+                    vec![1440, 1440]
+                }
+            );
         }
     }
 }

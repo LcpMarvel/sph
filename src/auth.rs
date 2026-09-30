@@ -298,7 +298,7 @@ impl Store {
                 AppError::new(
                     Code::AuthRequired,
                     Stage::Credentials,
-                    "未找到登录凭证，请先执行 sph login",
+                    "未找到登录凭证，请先执行 sph login --yuanbao",
                 )
             } else {
                 AppError::fmt(
@@ -341,7 +341,7 @@ impl Store {
             AppError::new(
                 Code::InvalidCredentials,
                 Stage::Credentials,
-                "凭证文件不是有效的 JSON；如需重置请执行 sph logout 后重新 sph login",
+                "凭证文件不是有效的 JSON；如需重置请执行 sph logout 后重新 sph login --yuanbao",
             )
         })?;
         // 旧格式兼容：缺失 version/source/verified_at 读作 1 / manual_import / null；
@@ -757,6 +757,7 @@ mod tests {
         let store = new_test_store(&base.join("cfg"));
         let err = store.load().unwrap_err();
         assert_eq!(err.code, Code::AuthRequired);
+        assert!(err.message.contains("sph login --yuanbao"));
     }
 
     #[test]

@@ -4,9 +4,8 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::browser::Browser;
 use chromiumoxide::cdp::browser_protocol::network::GetCookiesParams;
-use futures::StreamExt;
 
 use crate::apperr::{AppError, Code, Result, Stage};
 use crate::browser::fetch;
@@ -28,30 +27,8 @@ pub async fn launch(work_dir: &str, stderr: SharedWriter) -> Result<ChromiumSess
     let chrome_path = fetch::ensure_chromium(stderr.clone()).await?;
 
     let profile_dir = std::path::Path::new(work_dir).join("browser-profile");
-    let cfg = BrowserConfig::builder()
-        .chrome_executable(&chrome_path)
-        .user_data_dir(&profile_dir)
-        .arg("--window-size=1280,860")
-        .with_head()
-        .build()
-        .map_err(|e| {
-            AppError::fmt(
-                Code::LoginBrowserFailed,
-                Stage::LoginBrowser,
-                format_args!("无法配置登录浏览器: {e}"),
-            )
-        })?;
-
-    let (browser, mut handler) = Browser::launch(cfg).await.map_err(|e| {
-        AppError::fmt(
-            Code::LoginBrowserFailed,
-            Stage::LoginBrowser,
-            format_args!("无法启动登录浏览器；首次使用需要联网下载浏览器，请检查网络后重试: {e}"),
-        )
-    })?;
-    tokio::spawn(async move { while handler.next().await.is_some() {} });
-
-    let page = browser.new_page(HOME_PAGE).await.map_err(|e| {
+    let (browser, page) = crate::browser::launch(&chrome_path, &profile_dir, true).await?;
+    page.goto(HOME_PAGE).await.map_err(|e| {
         AppError::fmt(
             Code::LoginBrowserFailed,
             Stage::LoginBrowser,
