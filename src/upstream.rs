@@ -471,7 +471,13 @@ fn parse_finder_response(raw: &[u8]) -> Result<FinderResponse> {
             format_args!("预览接口业务错误 errCode {err_code}: {msg}"),
         ));
     }
-    if let Some(em) = fr.data.as_ref().and_then(|d| d.err_msg.as_ref()) {
+    // 成功响应也会携带 type=0 的空 errMsg 对象。
+    if let Some(em) = fr
+        .data
+        .as_ref()
+        .and_then(|d| d.err_msg.as_ref())
+        .filter(|em| em.msg_type != 0)
+    {
         let title = em
             .title
             .as_deref()
@@ -769,6 +775,36 @@ mod tests {
         let mut c = Client::new(f);
         c.sleep = Some(Box::new(|_| {}));
         c
+    }
+
+    #[test]
+    fn finder_zero_error_type_allows_media_selection() {
+        let raw = json!({
+            "errCode": 0,
+            "data": {
+                "errMsg": {"type": 0, "title": "", "content": ""},
+                "feedInfo": {"h264VideoInfo": {"videoUrl": MEDIA_URL}}
+            }
+        });
+        let feed = parse_finder_response(raw.to_string().as_bytes()).unwrap();
+        assert_eq!(select_media(&feed).unwrap().media_url, MEDIA_URL);
+
+        let mut missing_media = raw.clone();
+        missing_media["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("feedInfo");
+        let feed = parse_finder_response(missing_media.to_string().as_bytes()).unwrap();
+        assert_eq!(select_media(&feed).unwrap_err().code, Code::NoMedia);
+
+        let mut unavailable = raw;
+        unavailable["data"]["errMsg"]["type"] = json!(1);
+        assert_eq!(
+            parse_finder_response(unavailable.to_string().as_bytes())
+                .unwrap_err()
+                .code,
+            Code::VideoUnavailable
+        );
     }
 
     #[test]
