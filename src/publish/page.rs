@@ -321,14 +321,221 @@ impl<'a> PublishPage<'a> {
         Ok(())
     }
 
-    pub async fn set_cover(&self, cover_path: &Path) -> Result<()> {
+    pub async fn set_cover(&self, path: &Path) -> Result<()> {
+        self.set_ratio_cover(path, false).await
+    }
+
+    pub async fn set_landscape_cover(&self, path: &Path) -> Result<()> {
+        self.set_ratio_cover(path, true).await
+    }
+
+    /// 等实际上传完成，再通过真实指针操作当前比例的编辑器。
+    async fn set_ratio_cover(&self, path: &Path, landscape: bool) -> Result<()> {
+        if landscape {
+            self.wait_cover_ready(None).await?;
+            let js = format!(
+                r#"(function(){{
+              {ROOTS}
+              for (const root of __roots) for (const el of root.querySelectorAll('.horizon-cover-wrap')) {{
+                const rect=el.getBoundingClientRect(), style=getComputedStyle(el);
+                if (rect.width>0 && rect.height>0 && style.display!=='none' && style.visibility!=='hidden') return 'y';
+              }}
+              return '';
+            }})()"#
+            );
+            if self.wujie.run_js(&js, Stage::Cover).await?.as_deref() != Some("y") {
+                return Err(AppError::new(
+                    Code::SchemaChanged,
+                    Stage::Cover,
+                    "当前发布页面没有横版封面编辑入口；横版封面未设置，已停止提交",
+                ));
+            }
+        }
+        let scope = if landscape {
+            ".horizon-cover-wrap .horizon-img-wrap"
+        } else {
+            ".vertical-cover-wrap .vertical-img-wrap"
+        };
+        self.wait_cover_ready(Some(scope)).await?;
+        self.cover_click(scope, "编辑").await?;
+        if landscape {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            self.cover_click(".ant-popover .btn-directly-edit button", "直接编辑")
+                .await?;
+        }
+        self.wait_cover_visible(true).await?;
         self.wujie
             .set_file_input(
-                self.selectors.cover_file_input.as_ref(),
-                cover_path,
+                ".cover-set-wrap input[type=file][accept*='image']",
+                path,
                 Stage::Cover,
             )
-            .await
+            .await?;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        // 旧 edit 已校准的确认按钮，只在含当前 crop 编辑器的对话框内操作。
+        self.cover_click(
+            ".weui-desktop-dialog__wrp:has(.cover-set-wrap) button",
+            "确认",
+        )
+        .await?;
+        self.wait_cover_visible(false).await
+    }
+
+    async fn wait_cover_ready(&self, scope: Option<&str>) -> Result<()> {
+        let edit_ready = match scope {
+            Some(scope) => format!(
+                r#"for (const root of __roots) for (const el of root.querySelectorAll({scope:?})) {{
+                if ((el.innerText || '').trim()==='编辑' && rendered(el)) return 'y';
+            }} return '';"#
+            ),
+            None => "return 'y';".to_string(),
+        };
+        let js = format!(
+            r#"(function(){{
+          {ROOTS}
+          const rendered = el => {{ const rect=el.getBoundingClientRect(), style=getComputedStyle(el); return rect.width>0 && rect.height>0 && style.display!=='none' && style.visibility!=='hidden'; }};
+          for (const root of __roots) {{
+            for (const el of root.querySelectorAll('.img-popover-wrap .weui-desktop-popover__desc, .vertical-cover-wrap .loading-wrap, .horizon-cover-wrap .loading-wrap, .vertical-cover-wrap .vertical-mask-layer')) {{
+              if (((el.innerText || '').includes('生成中') && rendered(el)) || ((el.classList.contains('loading-wrap') || el.classList.contains('vertical-mask-layer')) && rendered(el))) return '';
+            }}
+          }}
+          {edit_ready}
+        }})()"#
+        );
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        loop {
+            if self.wujie.run_js(&js, Stage::Cover).await?.as_deref() == Some("y") {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(AppError::new(
+                    Code::Timeout,
+                    Stage::Cover,
+                    "等待视频上传遮罩消失、封面生成及编辑按钮就绪超时（120秒）",
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    async fn wait_cover_visible(&self, expected: bool) -> Result<()> {
+        let js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const root of __roots) for (const el of root.querySelectorAll('.cover-set-wrap')) {{
+            const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
+            if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') return 'y';
+          }}
+          return '';
+        }})()"#
+        );
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            let visible = self.wujie.run_js(&js, Stage::Cover).await?.as_deref() == Some("y");
+            if visible == expected {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(AppError::new(
+                    Code::Timeout,
+                    Stage::Cover,
+                    if expected {
+                        "等待非零大小封面编辑器超时"
+                    } else {
+                        "封面编辑器确认后未关闭"
+                    },
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    async fn cover_click(&self, selector: &str, label: &str) -> Result<()> {
+        let js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const root of __roots) for (const el of root.querySelectorAll({selector:?})) {{
+            if ((el.innerText || '').trim() !== {label:?}) continue;
+            el.scrollIntoView({{block:'center', inline:'center'}});
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) return [rect.x+rect.width/2,rect.y+rect.height/2].join(',');
+          }}
+          return '';
+        }})()"#
+        );
+        self.wujie.run_js(&js, Stage::Cover).await?;
+        // scrollIntoView 可能尚在滚动；稳定后重新测量，不能使用滚动前坐标。
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let settled_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const root of __roots) for (const el of root.querySelectorAll({selector:?})) {{
+            if ((el.innerText || '').trim() !== {label:?}) continue;
+            const rect = el.getBoundingClientRect();
+            if (rect.width>0 && rect.height>0) return [rect.x+rect.width/2,rect.y+rect.height/2].join(',');
+          }}
+          return '';
+        }})()"#
+        );
+        let coords = self
+            .wujie
+            .run_js(&settled_js, Stage::Cover)
+            .await?
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AppError::new(
+                    Code::SchemaChanged,
+                    Stage::Cover,
+                    format!("未找到非零大小封面控件：{label}"),
+                )
+            })?;
+        let (x, y) = coords
+            .split_once(',')
+            .and_then(|(x, y)| Some((x.parse::<f64>().ok()?, y.parse::<f64>().ok()?)))
+            .ok_or_else(|| AppError::new(Code::InternalError, Stage::Cover, "封面坐标解析失败"))?;
+        {
+            use chromiumoxide::cdp::browser_protocol::input::{
+                DispatchMouseEventParams, DispatchMouseEventType,
+            };
+            self.page
+                .execute(
+                    DispatchMouseEventParams::builder()
+                        .r#type(DispatchMouseEventType::MouseMoved)
+                        .x(x)
+                        .y(y)
+                        .build()
+                        .map_err(|_| {
+                            AppError::new(
+                                Code::InternalError,
+                                Stage::Cover,
+                                "封面hover事件构造失败",
+                            )
+                        })?,
+                )
+                .await
+                .map_err(|_| AppError::new(Code::SchemaChanged, Stage::Cover, "封面hover失败"))?;
+            tokio::time::sleep(Duration::from_millis(350)).await;
+        }
+        let hit_js = format!(
+            r#"(function(){{
+          {ROOTS}
+          for (const root of __roots) for (const el of root.querySelectorAll({selector:?})) {{
+            if ((el.innerText || '').trim() !== {label:?}) continue;
+            const hit = root.elementFromPoint && root.elementFromPoint({x},{y});
+            const style = getComputedStyle(el), rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none' && hit && (hit === el || el.contains(hit))) return 'y';
+          }}
+          return '';
+        }})()"#
+        );
+        if self.wujie.run_js(&hit_js, Stage::Cover).await?.as_deref() != Some("y") {
+            return Err(AppError::new(
+                Code::SchemaChanged,
+                Stage::Cover,
+                format!("hover后点击点未命中封面控件：{label}"),
+            ));
+        }
+        self.wujie.real_click_coords(&coords, Stage::Cover).await
     }
 
     /// 原创声明：默认保守不勾。若已勾选则响亮报错交给人工确认。

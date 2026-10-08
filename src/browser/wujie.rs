@@ -520,7 +520,7 @@ impl<'a> Wujie<'a> {
               if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
               const item = lab.closest('.form-item, [class*=form__item], [class*=form-item]') || lab.parentElement;
               if (!item) continue;
-              for (const field of item.querySelectorAll('.select-placeholder, [role=combobox], [class*=select__value], [class*=select-value], input')) {{
+              for (const field of item.querySelectorAll('.select-placeholder, [role=combobox], [class*=select__value], [class*=select-value], input, .post-album-display .collection-text')) {{
                 if (!vis(field)) continue;
                 const value = (field.value || field.innerText || '').trim();
                 if (value === {opt} || value.startsWith({opt} + ' ') || value.startsWith({opt} + '\n')) return true;

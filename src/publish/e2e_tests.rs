@@ -146,6 +146,132 @@ pub(crate) mod tests {
         (opts, stderr_vec)
     }
 
+    // Use the full publishing pipeline with a retained local page, so the assertions
+    // inspect the actual file inputs and submit listener rather than only the DTO.
+    #[tokio::test]
+    async fn e2e_publish_two_covers() {
+        let Some(chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let work = tempdir("two-covers");
+        let video = test_video_file(&work);
+        let portrait = work.join("portrait.jpg");
+        let landscape = work.join("landscape.jpg");
+        std::fs::write(&portrait, b"portrait").unwrap();
+        std::fs::write(&landscape, b"landscape").unwrap();
+        for (dry_run, failure, missing_landscape) in [
+            (true, false, false),
+            (false, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let profile = tempdir("two-cover-browser");
+            let (mut browser, page) = browser::launch(&chrome, &profile, false).await.unwrap();
+            let (mut opts, _) = opts_with_fixture(
+                FIXTURE_PUBLISH,
+                video.clone(),
+                Some(portrait.clone()),
+                dry_run,
+            );
+            opts.cover_landscape = Some(landscape.clone());
+            if failure {
+                opts.navigate_url
+                    .as_mut()
+                    .unwrap()
+                    .push_str("?landscapeFail=1");
+            }
+            if missing_landscape {
+                opts.navigate_url
+                    .as_mut()
+                    .unwrap()
+                    .push_str("?noLandscape=1");
+            }
+            validate(&opts).unwrap();
+            let backend: Arc<dyn crate::publish::recovery::RecoveryBackend> =
+                Arc::new(crate::publish::recovery::NullBackend);
+            let result = crate::publish::mod_impl::run_inner_with_backend(
+                &work,
+                DEFAULT_ACCOUNT,
+                &page,
+                &DEFAULT_SELECTORS,
+                &opts,
+                &backend,
+            )
+            .await;
+            let value = page
+                .evaluate("({uploads: window.coverUploads, submits: window.submitCount, earlyClick: window.earlyCoverClick, maskRemovedAt: window.maskRemovedAt, firstCoverClickAt: window.firstCoverClickAt})")
+                .await
+                .unwrap()
+                .into_value::<serde_json::Value>()
+                .unwrap();
+            assert_eq!(value["earlyClick"], 0);
+            assert!(value["maskRemovedAt"].as_u64().unwrap() > 0);
+            assert!(
+                value["firstCoverClickAt"].as_u64().unwrap()
+                    >= value["maskRemovedAt"].as_u64().unwrap()
+            );
+            assert_eq!(value["uploads"]["portrait"], "portrait.jpg");
+            if failure || missing_landscape {
+                let err = result.unwrap_err();
+                assert_eq!(err.stage, Stage::Cover);
+                if missing_landscape {
+                    assert!(err.message.contains("没有横版封面编辑入口"));
+                    assert_eq!(err.code, Code::SchemaChanged);
+                }
+                assert!(value["uploads"].get("landscape").is_none());
+                assert_eq!(value["submits"], 0);
+            } else {
+                assert_eq!(value["uploads"]["landscape"], "landscape.jpg");
+                assert_eq!(value["submits"], if dry_run { 0 } else { 1 });
+                let result = result.unwrap();
+                assert_eq!(result.submitted, !dry_run);
+            }
+            browser.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn e2e_publish_landscape_only() {
+        let Some(chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let work = tempdir("landscape-only");
+        let video = test_video_file(&work);
+        let landscape = work.join("landscape.jpg");
+        std::fs::write(&landscape, b"landscape").unwrap();
+        let profile = tempdir("landscape-only-browser");
+        let (mut browser, page) = browser::launch(&chrome, &profile, false).await.unwrap();
+        let (mut opts, _) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.cover_landscape = Some(landscape);
+        validate(&opts).unwrap();
+        let backend: Arc<dyn crate::publish::recovery::RecoveryBackend> =
+            Arc::new(crate::publish::recovery::NullBackend);
+        let result = crate::publish::mod_impl::run_inner_with_backend(
+            &work,
+            DEFAULT_ACCOUNT,
+            &page,
+            &DEFAULT_SELECTORS,
+            &opts,
+            &backend,
+        )
+        .await
+        .unwrap();
+        let value = page.evaluate("({uploads: window.coverUploads, submits: window.submitCount, earlyClick: window.earlyCoverClick, maskRemovedAt: window.maskRemovedAt, firstCoverClickAt: window.firstCoverClickAt})").await.unwrap().into_value::<serde_json::Value>().unwrap();
+        assert!(value["uploads"].get("portrait").is_none());
+        assert_eq!(value["uploads"]["landscape"], "landscape.jpg");
+        assert_eq!(value["earlyClick"], 0);
+        assert!(value["maskRemovedAt"].as_u64().unwrap() > 0);
+        assert!(
+            value["firstCoverClickAt"].as_u64().unwrap()
+                >= value["maskRemovedAt"].as_u64().unwrap()
+        );
+        assert_eq!(value["submits"], 0);
+        assert!(!result.submitted);
+        browser.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn e2e_publish_happy_path() {
         let Some(_chrome) = test_chrome() else {
@@ -568,5 +694,24 @@ pub(crate) mod tests {
         let err = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap_err();
         assert_eq!(err.code, Code::SchemaChanged, "err: {err}");
         assert!(err.message.contains("提交前"), "err: {err}");
+    }
+    #[tokio::test]
+    async fn e2e_collection_current_display_is_verified() {
+        let Some(_chrome) = test_chrome() else {
+            eprintln!("skip: no chromium");
+            return;
+        };
+        let config = tempdir("collection-display");
+        make_session(&config);
+        let work = tempdir("collection-display-video");
+        let video = test_video_file(&work);
+        let (mut opts, _) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        opts.navigate_url = Some(format!(
+            "{}?collectionDisplay=1",
+            fixture_url(FIXTURE_PUBLISH)
+        ));
+        opts.collection = Some("机械系列".to_string());
+        let result = run(&config, DEFAULT_ACCOUNT, opts).await.unwrap();
+        assert!(result.dry_run && !result.submitted);
     }
 }

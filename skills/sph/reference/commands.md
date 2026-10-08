@@ -27,7 +27,8 @@ sph publish VIDEO.mp4 --title "标题" [选项]
 | `--title "标题"` | 必填 |
 | `--description "描述"` | |
 | `--tags "机械,科普"` | 逗号分隔 |
-| `--cover FILE.jpg` | 封面图 |
+| `--cover FILE.jpg` | 竖版封面，上传并确认后再提交 |
+| `--cover-landscape FILE.jpg` | 横版封面，可独立指定；无对应页面入口则停止提交 |
 | `--at "YYYY-MM-DD HH:MM"` | 定时发表，本地时区，必须未来时间（非法 → 退出码 18） |
 | `--collection "名称"` | 合集 |
 | `--link "名称"` | 链接 |
@@ -38,6 +39,8 @@ sph publish VIDEO.mp4 --title "标题" [选项]
 | `--headed` | 可见浏览器（调试用） |
 | `--json` | 单 JSON 对象输出 |
 | `--timeout <时长>` | 覆盖默认超时 |
+
+封面编辑会等待实际视频上传完成。两种封面均指定时分别上传到各自的编辑器；任何一种失败都不会提交视频。封面文件的比例以当前后台裁切预览为准，CLI参数不能让页面不存在的入口出现。
 
 成功输出示例：
 

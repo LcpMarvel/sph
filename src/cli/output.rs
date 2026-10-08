@@ -142,7 +142,8 @@ publish 选项:
   --title \"标题\"        必填
   --description \"描述\"
   --tags \"机械,科普\"     逗号分隔
-  --cover FILE.jpg       封面图
+  --cover FILE.jpg       竖版封面图
+  --cover-landscape FILE.jpg  横版封面图（发布页须提供横版编辑入口）
   --at \"YYYY-MM-DD HH:MM\"  定时发表（本地时区，默认立即）
   --collection \"名称\"    加入合集
   --link \"名称\"          添加链接

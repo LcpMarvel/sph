@@ -66,7 +66,7 @@ sph publish ./video.mp4 --title "..." --tags "机械,科普" --json
 
 ```bash
 # 发一条视频
-sph publish ./v.mp4 --title "标题" --description "描述" --tags "机械,科普" --cover c.jpg --json
+sph publish ./v.mp4 --title "标题" --description "描述" --tags "机械,科普" --cover c.jpg --cover-landscape h.jpg --json
 
 # 定时发表（本地时区，必须未来时间）
 sph publish ./v.mp4 --title "标题" --at "2026-09-25 20:00" --json
@@ -87,7 +87,7 @@ sph publish ./v.mp4 --title "测试" --dry-run --json
 sph list --json
 sph list --collection "机械系列" --json
 sph edit <id> --title "新标题" --dry-run --json     # --title=平台短标题，总长须 6..=16 字
-sph edit <id> --description "新描述" --cover c.jpg --json
+sph edit <id> --description "新描述" --cover c.jpg --cover-landscape h.jpg --json
 # 注意：edit 的差异区间单次限 20 字（描述）/ 16 字（短标题），超限本地拒绝（退出码 2）
 
 # 排查
