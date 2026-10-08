@@ -40,6 +40,7 @@ command -v sph && sph doctor --json
 sph publish ./video.mp4 --title "标题" --description "描述" --tags "机械,科普" --cover cover.jpg --json
 ```
 
+- 发布封面：`--cover portrait.jpg` / `--cover-landscape landscape.jpg` 可独立或同时指定。视频上传完成后分别上传并确认；只有请求的封面都完成才继续提交。页面没有对应封面入口时会明确报错，不把命令有此参数等同于所有视频都能设置该比例，也不丢掉参数继续发布。首次用 dry-run 核对实际后台裁切预览。
 - 定时发表加 `--at "YYYY-MM-DD HH:MM"`（本地时区、必须未来时间）；定时属于延迟生效的对外动作，同样要先确认。
 - 扩展属性：`--collection "合集名"` / `--link "链接名"` / `--activity "活动名"` / `--ai-mark`（含 AI 生成内容标注）。
 - 多账号加 `--account NAME`（账号列表用 `sph accounts` 查）。

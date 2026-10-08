@@ -26,6 +26,7 @@ pub struct Options {
     pub description: String,
     pub tags: Vec<String>,
     pub cover: Option<PathBuf>,
+    pub cover_landscape: Option<PathBuf>,
     pub dry_run: bool,
     pub headed: bool,
     pub timeout: Duration,
@@ -114,7 +115,7 @@ pub fn validate(opts: &Options) -> Result<()> {
             "标题不能为空（使用 --title 指定）",
         ));
     }
-    if let Some(cover) = &opts.cover {
+    for cover in [&opts.cover, &opts.cover_landscape].into_iter().flatten() {
         let cmeta = std::fs::metadata(cover).map_err(|_| {
             AppError::fmt(
                 Code::InvalidArgument,
@@ -269,8 +270,17 @@ pub(crate) async fn run_inner_with_backend(
         werr(stderr, format_args!("步骤 3/5：设置封面…\n"));
         step!(
             Stage::Cover,
-            selectors.cover_file_input.as_ref(),
+            ".vertical-cover-wrap .vertical-img-wrap",
             flow.set_cover(cover)
+        );
+    }
+
+    if let Some(cover) = &opts.cover_landscape {
+        werr(stderr, format_args!("步骤 3/5：设置横版封面…\n"));
+        step!(
+            Stage::Cover,
+            ".horizon-cover-wrap .horizon-img-wrap",
+            flow.set_landscape_cover(cover)
         );
     }
 
@@ -470,6 +480,7 @@ pub fn default_options(
         description,
         tags,
         cover,
+        cover_landscape: None,
         dry_run,
         headed,
         timeout,

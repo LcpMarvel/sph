@@ -833,6 +833,7 @@ async fn run_publish(
     if let Some(raw) = cmd.flag("at") {
         opts.schedule_at = Some(parse_schedule_at(raw)?);
     }
+    opts.cover_landscape = cmd.flag("cover-landscape").map(PathBuf::from);
     opts.collection = cmd.flag("collection").map(String::from);
     opts.link = cmd.flag("link").map(String::from);
     opts.activity = cmd.flag("activity").map(String::from);
@@ -2044,6 +2045,39 @@ mod m2_tests {
                 "t",
                 "--cover",
                 "/nope/c.jpg",
+            ],
+        )
+        .await;
+        assert_eq!(code, 2);
+        // 无效横版必须在会话加载及浏览器联网前拒绝；横版可独立提供。
+        let portrait = work.join("portrait.jpg");
+        std::fs::write(&portrait, b"portrait").unwrap();
+        let (code, _, _) = run_cli2(
+            &deps,
+            "",
+            &[
+                "publish",
+                &video_str,
+                "--title",
+                "t",
+                "--cover-landscape",
+                portrait.to_str().unwrap(),
+            ],
+        )
+        .await;
+        assert_eq!(code, 15); // Valid arguments reach the local missing-session check.
+        let (code, _, _) = run_cli2(
+            &deps,
+            "",
+            &[
+                "publish",
+                &video_str,
+                "--title",
+                "t",
+                "--cover",
+                portrait.to_str().unwrap(),
+                "--cover-landscape",
+                "/nope/h.jpg",
             ],
         )
         .await;

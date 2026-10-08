@@ -67,7 +67,8 @@ sph logout [--assistant]                # 清下载凭证 / 助手会话
 
 # 发布
 sph publish VIDEO.mp4 --title "标题" [选项]
-    --description "描述"  --tags "机械,科普"  --cover cover.jpg
+    --description "描述"  --tags "机械,科普"  --cover portrait.jpg
+    --cover-landscape landscape.jpg
     --at "YYYY-MM-DD HH:MM"               # 定时发表（本地时区）
     --collection "名称"   --link "名称"   --activity "名称"
     --ai-mark                             # 视频标注：含 AI 生成内容
@@ -82,8 +83,8 @@ sph batch <dir> [--tags "..."] [--dry-run] [--json]
 
 # 视频管理
 sph list [--collection "名称"] [--limit N] [--json]      # 已发布视频列表
-sph edit <id> [--title T] [--description D] [--cover F] [--dry-run] [--json]
-    # 修改已发布视频（三字段至少其一；id 来自 list；先 dry-run 再实改）
+sph edit <id> [--title T] [--description D] [--cover F] [--cover-landscape F] [--dry-run] [--json]
+    # 修改已发布视频（四字段至少其一；id 来自 list；先 dry-run 再实改）
 
 # 下载（v1 能力原样保留）
 sph download "https://weixin.qq.com/sph/xxxx" [-o out.mp4] [--overwrite] [--json]
@@ -150,6 +151,12 @@ sph publish ./v.mp4 --title "..." --json
 sph logout --assistant && sph logout
 rm -rf ~/.sph
 ```
+
+## 发布封面
+
+发布时可用 `--cover` 指定竖版、`--cover-landscape` 指定横版，两者可独立使用。工具等待视频上传完成后，分别打开实际封面编辑器、上传图片并确认，再继续定时或提交；`--dry-run` 同样会填写封面，但不提交视频。
+
+封面入口取决于当前后台与视频。所请求的比例没有对应入口时，工具明确报错并停止提交，不会静默忽略图片或把缺失字段当作成功。以实际裁切预览检查文字完整，不把单个比例当成所有视频的统一要求。
 
 ## 开发
 

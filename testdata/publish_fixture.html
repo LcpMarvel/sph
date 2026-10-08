@@ -4,7 +4,11 @@
 <!-- 视频号助手发布流程的最小仿真（离线回归 fixture）。
      结构对齐真实平台的两段式：主页(.brand-name + 发表视频按钮) → 点击后进入创建表单。
      选择器与 DEFAULT_SELECTORS 对齐。 -->
-<style>[hidden]{display:none!important}</style>
+<style>[hidden]{display:none!important}
+.vertical-cover-wrap .edit-btn, .horizon-cover-wrap .edit-btn {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
+.vertical-img-wrap, .horizon-img-wrap{position:relative;width:120px;height:100px}
+.vertical-mask-layer{position:absolute;inset:0;z-index:10;background:#aaa}
+</style>
 <div id="home">
   <div class="brand-name">视频号 · 助手（fixture）</div>
   <button id="entry" type="button">发表视频</button>
@@ -22,6 +26,14 @@
     </ul>
   </div>
   <input type="file" id="cover-file" accept="image/jpeg">
+  <div class="vertical-cover-wrap"><div class="vertical-img-wrap"><img width="120" height="100" alt=""><div class="edit-btn">编辑</div><div class="vertical-mask-layer"></div></div></div>
+  <div class="horizon-cover-wrap"><div class="horizon-img-wrap"><img width="120" height="100" alt=""><div class="edit-btn">编辑</div></div></div>
+  <div class="ant-popover" hidden><div class="btn-directly-edit"><button type="button">直接编辑</button></div></div>
+  <div class="weui-desktop-dialog__wrp"><div class="cover-set-wrap" hidden>
+    <input type="file" id="ratio-cover" accept="image/jpeg,image/jpg,image/png">
+    <button type="button" id="cover-confirm">确认</button>
+    </div>
+  </div>
   <div class="cover-preview-wrap" hidden>封面预览</div>
   <input type="checkbox" class="ant-checkbox-input" id="original-checkbox">
   <div class="form-item">
@@ -62,6 +74,16 @@
   <div class="publish-error" hidden></div>
 </div>
 <script>
+window.coverUploads = {}; window.submitCount = 0; window.earlyCoverClick = 0; window.maskRemovedAt = 0; window.firstCoverClickAt = 0;
+let coverRatio;
+function openCover() { document.querySelector('.cover-set-wrap').hidden = false; document.getElementById('ratio-cover').value = ''; }
+document.querySelector('.vertical-cover-wrap .vertical-img-wrap').onclick = () => { window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'portrait'; openCover(); };
+document.querySelector('.horizon-cover-wrap .horizon-img-wrap').onclick = () => { if (!window.firstCoverClickAt) window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'landscape'; document.querySelector('.ant-popover').hidden = false; };
+document.querySelector('.btn-directly-edit button').onclick = () => { document.querySelector('.ant-popover').hidden = true; if (!location.search.includes('landscapeFail=1')) openCover(); };
+document.getElementById('ratio-cover').onchange = function () { window.coverUploads[coverRatio] = this.files[0].name; };
+document.getElementById('cover-confirm').onclick = () => { document.querySelector('.cover-set-wrap').hidden = true; };
+if (location.search.includes('noLandscape=1')) document.querySelector('.horizon-cover-wrap').remove();
+if (location.search.includes('landscapeFail=1')) document.querySelector('.btn-directly-edit button').remove();
 document.getElementById('entry').addEventListener('click', function () {
   document.getElementById('home').hidden = true;
   document.getElementById('create').hidden = false;
@@ -69,6 +91,8 @@ document.getElementById('entry').addEventListener('click', function () {
 // 选择视频后进入处理态，短暂延迟后封面就绪（模拟平台截帧完成）
 document.getElementById('video-file').addEventListener('change', function () {
   if (!this.files.length) return;
+  // Preview and decorative edit label appear before upload is finished.
+  setTimeout(() => { document.querySelector('.vertical-mask-layer').remove(); window.maskRemovedAt = Date.now(); }, 4500);
   setTimeout(function () {
     document.querySelector(".cover-preview-wrap").hidden = false;
   }, 60);
@@ -77,6 +101,7 @@ document.getElementById('cover-file').addEventListener('change', function () {
   if (!this.files.length) return;
 });
 document.getElementById('submit-btn').addEventListener('click', function () {
+  window.submitCount++;
   if (!document.querySelector(".cover-preview-wrap").hidden) {
     document.getElementById('result').dataset.value = 'published';
     history.pushState(null, '', '#post/list');
@@ -99,6 +124,12 @@ document.querySelectorAll('.options .opt').forEach(function (opt) {
     var item = opt.closest('.form-item');
     if (location.search.includes('collectionNoop=1') && (item.querySelector('.label').innerText || '').trim() === '添加到合集') return;
     item.querySelector('.select-placeholder').innerText = (opt.querySelector('span') || opt).innerText;
+    if (location.search.includes('collectionDisplay=1') && (item.querySelector('.label').innerText || '').trim() === '添加到合集') {
+      const display = item.querySelector('.select-placeholder');
+      const text = document.createElement('div');
+      text.className = 'collection-text'; text.innerText = display.innerText;
+      display.className = 'post-album-display'; display.replaceChildren(text);
+    }
     item.querySelector('.options').hidden = true;
   });
 });
