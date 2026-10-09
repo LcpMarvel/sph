@@ -639,6 +639,87 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn e2e_dropdown_scroll_delay_and_scope() {
+        let chrome = test_chrome().expect("Chromium is required for this regression");
+        for query in [
+            "collectionBelow=1",
+            "collectionDelay=1",
+            "collectionDecoy=1",
+            "collectionTriggerDisplay=1",
+            "collectionPortal=1&collectionDelay=1&collectionDecoy=1",
+            "collectionPortalUnlinked=1&collectionDecoy=1",
+            "collectionBelow=1&collectionDelay=1&collectionDecoy=1&collectionDisplay=1&collectionTriggerDisplay=1",
+        ] {
+            let profile = tempdir("dropdown-browser");
+            let (mut browser, page) = browser::launch(&chrome, &profile, false).await.unwrap();
+            page.goto(format!("{}?{query}", fixture_url(FIXTURE_PUBLISH)))
+                .await
+                .unwrap();
+            page.evaluate("document.getElementById('entry').click()")
+                .await
+                .unwrap();
+            let flow = crate::browser::wujie::Wujie::new(&page);
+            flow.select_dropdown_option("添加到合集", "机械系列", Stage::Metadata)
+                .await
+                .unwrap_or_else(|err| panic!("{query}: {err}"));
+            flow.assert_dropdown_option("添加到合集", "机械系列", Stage::Metadata)
+                .await
+                .unwrap();
+            let value = page.evaluate("({opens:window.dropdownOpens,decoys:window.decoyClicks,submits:window.submitCount})").await.unwrap().into_value::<serde_json::Value>().unwrap();
+            assert_eq!(value["opens"], 1, "{query}");
+            assert_eq!(value["decoys"], 0, "{query}");
+            assert_eq!(value["submits"], 0, "{query}");
+            page.evaluate("(document.querySelector('.form-item .collection-text') || document.querySelector('.form-item .select-placeholder')).innerText = '机械系列 旧期'").await.unwrap();
+            let err = flow.assert_dropdown_option("添加到合集", "机械系列", Stage::Metadata).await.unwrap_err();
+            assert!(err.message.contains("提交前"), "{query}: {err}");
+            browser.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn e2e_collection_failures_never_submit() {
+        let chrome = test_chrome().expect("Chromium is required for this regression");
+        let work = tempdir("collection-guard");
+        let video = test_video_file(&work);
+        for (query, expected) in [
+            ("collectionMissing=1&collectionDecoy=1", "未在等待时间内"),
+            ("collectionPrefix=1", "未在等待时间内"),
+            ("collectionNoop=1", "未回填"),
+            ("collectionResetOnSchedule=1", "提交前"),
+        ] {
+            let profile = tempdir("collection-guard-browser");
+            let (mut browser, page) = browser::launch(&chrome, &profile, false).await.unwrap();
+            let (mut opts, _) = opts_with_fixture(FIXTURE_PUBLISH, video.clone(), None, false);
+            opts.navigate_url = Some(format!("{}?{query}", fixture_url(FIXTURE_PUBLISH)));
+            opts.collection = Some("机械系列".to_string());
+            if query.contains("ResetOnSchedule") {
+                opts.schedule_at =
+                    Some(time::OffsetDateTime::now_local().unwrap() + Duration::from_secs(7200));
+            }
+            validate(&opts).unwrap();
+            let backend: Arc<dyn crate::publish::recovery::RecoveryBackend> =
+                Arc::new(crate::publish::recovery::NullBackend);
+            let err = crate::publish::mod_impl::run_inner_with_backend(
+                &work,
+                DEFAULT_ACCOUNT,
+                &page,
+                &DEFAULT_SELECTORS,
+                &opts,
+                &backend,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.code, Code::SchemaChanged, "{query}: {err}");
+            assert!(err.message.contains(expected), "{query}: {err}");
+            let value = page.evaluate("({opens:window.dropdownOpens,decoys:window.decoyClicks,submits:window.submitCount})").await.unwrap().into_value::<serde_json::Value>().unwrap();
+            assert_eq!(value["opens"], 1, "{query}");
+            assert_eq!(value["decoys"], 0, "{query}");
+            assert_eq!(value["submits"], 0, "{query}");
+            browser.close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn e2e_collection_not_found_is_loud_error() {
         let Some(_chrome) = test_chrome() else {
             eprintln!("skip: no chromium");

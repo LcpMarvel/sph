@@ -399,23 +399,27 @@ impl<'a> Wujie<'a> {
         stage: Stage,
     ) -> Result<()> {
         let lbl = serde_json::to_string(label).unwrap_or_default();
-        // 1) 找下拉触发区，返回中心点视口坐标（点击由 CDP 完成，不在 JS 里点）
+        // 滚动完成后重新测量并 hit-test；整行中心可能是标签或空白。
         let open_js = format!(
-            r#"(function(){{
+            r#"(async function(){{
           {ROOTS}
           const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          const center = el => {{
-            const r = el.getBoundingClientRect();
-            return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
-          }};
+          const menus = '[role=listbox], [role=menu], .options, [class*=option-list], [class*=select-dropdown], [class*=dropdown-menu], [class*=dropdown__list], [class*=dropdown-list], [class*=select-options], [class*=popover], [class*=album-list], [class*=collection-list]';
           for (const sub of __roots) {{
             for (const lab of sub.querySelectorAll('.label, div, span')) {{
               if (!vis(lab) || (lab.innerText||'').trim() !== {lbl}) continue;
               const item = lab.closest('.form-item, [class*=form__item], [class*=form-item]') || lab.parentElement;
               if (!item) continue;
-              const ph = item.querySelector('.select-placeholder, [class*=select], [class*=dropdown]');
-              if (ph && vis(ph)) {{ return center(ph); }}
-              if (vis(item)) {{ return center(item); }}
+              const ph = item.querySelector('[role=combobox], .select-placeholder, .post-album-display, [class*=select], [class*=dropdown]');
+              if (!ph || !vis(ph)) continue;
+              ph.scrollIntoView({{block:'center', inline:'nearest', behavior:'instant'}});
+              await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const r = ph.getBoundingClientRect();
+              const x = r.left + r.width / 2, y = r.top + r.height / 2;
+              const hit = sub.elementFromPoint(x, y);
+              if (!hit || !(hit === ph || ph.contains(hit))) continue;
+              window.__sphDropdown = {{item, ph, menus, before: new Set(__roots.flatMap(root => [...root.querySelectorAll(menus)].filter(vis)))}};
+              return x + ',' + y;
             }}
           }}
           return '';
@@ -429,50 +433,65 @@ impl<'a> Wujie<'a> {
             return Err(AppError::fmt(
                 Code::SchemaChanged,
                 stage,
-                format_args!("未找到下拉入口：{label}"),
+                format_args!("未找到可点击的下拉入口：{label}"),
             ));
         }
         self.real_click_coords(&coords, stage).await?;
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        // 2) 在选项文案本身点击。外层 [class*=item] 可能是整块表单，
-        //    其 innerText 包含合集名，点它的中心却不会选择任何合集。
         let opt = serde_json::to_string(option).unwrap_or_default();
         let pick_js = format!(
-            r#"(function(){{
+            r#"(async function(){{
           {ROOTS}
+          const ctx = window.__sphDropdown;
+          if (!ctx) return '';
           const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-          const center = el => {{
-            const r = el.getBoundingClientRect();
-            return (r.left + r.width / 2) + ',' + (r.top + r.height / 2);
-          }};
+          const ids = (ctx.ph.getAttribute('aria-controls') || ctx.ph.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean);
+          const linked = __roots.flatMap(root => ids.map(id => root.getElementById(id)).filter(Boolean));
+          const local = [...ctx.item.querySelectorAll(ctx.menus)];
+          let menus = (ids.length ? linked : local).filter(vis);
+          if (!ids.length && !local.length) {{
+            menus = __roots.flatMap(root => [...root.querySelectorAll(ctx.menus)]).filter(el => vis(el) && !ctx.before.has(el) && el !== ctx.ph && !el.contains(ctx.ph));
+            menus = menus.filter(el => !menus.some(parent => parent !== el && parent.contains(el)));
+            if (menus.length !== 1) return '';
+          }}
           let best = null;
-          for (const sub of __roots) {{
-            for (const el of sub.querySelectorAll('li, [role=option], [class*=option], [class*=item], div, span')) {{
+          for (const menu of menus) {{
+            for (const el of menu.querySelectorAll('li, [role=option], [role=menuitem], [class*=option], [class*=item], .opt, div, span')) {{
               if (!vis(el)) continue;
               const t = (el.innerText||'').trim();
-              if (t !== {opt} && !t.startsWith({opt} + ' ') && !t.startsWith({opt} + '\n')) continue;
+              if (t !== {opt}) continue;
               const r = el.getBoundingClientRect();
-              if (r.width <= 0 || r.height <= 0) continue;
-              const score = (t === {opt} ? 0 : 1) * 1e9 + r.width * r.height;
+              const score = r.width * r.height;
               if (!best || score < best.score) best = {{el, score}};
             }}
           }}
-          return best ? center(best.el) : '';
+          if (!best) return '';
+          best.el.scrollIntoView({{block:'nearest', inline:'nearest', behavior:'instant'}});
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const r = best.el.getBoundingClientRect();
+          const x = r.left + r.width / 2, y = r.top + r.height / 2;
+          const hit = best.el.getRootNode().elementFromPoint(x, y);
+          return hit && (hit === best.el || best.el.contains(hit)) ? x + ',' + y : '';
         }})()"#
         );
-        let picked = self
-            .run_js(pick_js.as_str(), stage)
-            .await?
-            .unwrap_or_default();
-        if picked.is_empty() {
-            return Err(AppError::fmt(
-                Code::SchemaChanged,
-                stage,
-                format_args!(
-                    "下拉「{label}」中没有选项「{option}」（账号可能没有可用的合集/链接/活动）"
-                ),
-            ));
-        }
+        // 只展开一次；异步加载的菜单在有界等待内查找，不重复盲点入口。
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let picked = loop {
+            let coords = self
+                .run_js(pick_js.as_str(), stage)
+                .await?
+                .unwrap_or_default();
+            if !coords.is_empty() {
+                break coords;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(AppError::fmt(
+                    Code::SchemaChanged,
+                    stage,
+                    format_args!("下拉「{label}」未在等待时间内出现可点击选项「{option}」"),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        };
         self.real_click_coords(&picked, stage).await?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
@@ -523,7 +542,7 @@ impl<'a> Wujie<'a> {
               for (const field of item.querySelectorAll('.select-placeholder, [role=combobox], [class*=select__value], [class*=select-value], input, .post-album-display .collection-text')) {{
                 if (!vis(field)) continue;
                 const value = (field.value || field.innerText || '').trim();
-                if (value === {opt} || value.startsWith({opt} + ' ') || value.startsWith({opt} + '\n')) return true;
+                if (value === {opt}) return true;
               }}
             }}
           }}
