@@ -76,6 +76,26 @@
 <script>
 window.coverUploads = {}; window.submitCount = 0; window.earlyCoverClick = 0; window.maskRemovedAt = 0; window.firstCoverClickAt = 0;
 let coverRatio;
+window.dropdownOpens = 0; window.decoyClicks = 0;
+const collectionItem = document.querySelector('.form-item');
+if (location.search.includes('collectionBelow=1')) collectionItem.style.marginTop = '1600px';
+if (location.search.includes('collectionDecoy=1')) {
+  const decoy = document.createElement('span');
+  decoy.innerText = '机械系列'; decoy.style.fontSize = '1px';
+  decoy.onclick = () => window.decoyClicks++;
+  document.getElementById('create').prepend(decoy);
+  const other = document.createElement('div');
+  other.className = 'options'; other.innerHTML = '<div class="opt">机械系列</div>';
+  other.onclick = () => window.decoyClicks++;
+  document.getElementById('create').prepend(other);
+}
+if (location.search.includes('collectionTriggerDisplay=1')) {
+  collectionItem.style.cssText += ';display:flex;align-items:center;justify-content:space-between;width:600px';
+  const trigger = collectionItem.querySelector('.select-placeholder');
+  trigger.className = 'post-album-display'; trigger.innerHTML = '<div class="collection-text">选择合集</div>';
+}
+if (location.search.includes('collectionPrefix=1')) collectionItem.querySelector('.options').innerHTML = '<div class="opt">机械系列 旧期</div><div class="opt">机械系列\n备份</div>';
+if (location.search.includes('collectionMissing=1')) collectionItem.querySelector('.options').replaceChildren();
 function openCover() { document.querySelector('.cover-set-wrap').hidden = false; document.getElementById('ratio-cover').value = ''; }
 document.querySelector('.vertical-cover-wrap .vertical-img-wrap').onclick = () => { window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'portrait'; openCover(); };
 document.querySelector('.horizon-cover-wrap .horizon-img-wrap').onclick = () => { if (!window.firstCoverClickAt) window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'landscape'; document.querySelector('.ant-popover').hidden = false; };
@@ -109,30 +129,39 @@ document.getElementById('submit-btn').addEventListener('click', function () {
 });
 // 输入痕迹（供断言）
 // 下拉选择：placeholder 点击展开 options，选项点击后回填
-document.querySelectorAll('.select-placeholder').forEach(function (ph) {
+document.querySelectorAll('.select-placeholder, .post-album-display').forEach(function (ph) {
   if ((ph.innerText || '').trim() === '视频标注') return;
   ph.addEventListener('click', function () {
     var item = ph.closest('.form-item');
     if (item) {
-      var opts = item.querySelector('.options');
-      if (opts) opts.hidden = false;
+      var opts = item.querySelector('.options') || document.getElementById('collection-options');
+      if (opts) {
+        window.dropdownOpens++;
+        setTimeout(() => { opts.hidden = false; }, location.search.includes('collectionDelay=1') ? 1500 : 0);
+      }
     }
   });
 });
 document.querySelectorAll('.options .opt').forEach(function (opt) {
   opt.addEventListener('click', function () {
-    var item = opt.closest('.form-item');
+    var item = opt.closest('.form-item') || collectionItem;
     if (location.search.includes('collectionNoop=1') && (item.querySelector('.label').innerText || '').trim() === '添加到合集') return;
-    item.querySelector('.select-placeholder').innerText = (opt.querySelector('span') || opt).innerText;
-    if (location.search.includes('collectionDisplay=1') && (item.querySelector('.label').innerText || '').trim() === '添加到合集') {
-      const display = item.querySelector('.select-placeholder');
+    item.querySelector('.select-placeholder, .post-album-display').innerText = (opt.querySelector('span') || opt).innerText;
+    if ((location.search.includes('collectionDisplay=1') || location.search.includes('collectionTriggerDisplay=1')) && (item.querySelector('.label').innerText || '').trim() === '添加到合集') {
+      const display = item.querySelector('.select-placeholder, .post-album-display');
       const text = document.createElement('div');
       text.className = 'collection-text'; text.innerText = display.innerText;
       display.className = 'post-album-display'; display.replaceChildren(text);
     }
-    item.querySelector('.options').hidden = true;
+    opt.closest('.options').hidden = true;
   });
 });
+if (location.search.includes('collectionPortal')) {
+  const opts = collectionItem.querySelector('.options');
+  opts.id = 'collection-options'; opts.setAttribute('role', 'listbox');
+  document.getElementById('create').append(opts);
+  if (location.search.includes('collectionPortal=1')) collectionItem.querySelector('.select-placeholder').setAttribute('aria-controls', opts.id);
+}
 // 视频标注：与真实页一致，点一次选中，再点一次取消。
 document.querySelector('.mark-placeholder').addEventListener('click', function () {
   document.querySelector('.mark-options').hidden = false;
