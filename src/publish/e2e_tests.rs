@@ -233,6 +233,15 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn e2e_publish_landscape_only() {
+        check_landscape_only(false).await;
+    }
+
+    #[tokio::test]
+    async fn e2e_publish_landscape_direct_editor() {
+        check_landscape_only(true).await;
+    }
+
+    async fn check_landscape_only(direct: bool) {
         let Some(chrome) = test_chrome() else {
             eprintln!("skip: no chromium");
             return;
@@ -244,6 +253,12 @@ pub(crate) mod tests {
         let profile = tempdir("landscape-only-browser");
         let (mut browser, page) = browser::launch(&chrome, &profile, false).await.unwrap();
         let (mut opts, _) = opts_with_fixture(FIXTURE_PUBLISH, video, None, true);
+        if direct {
+            opts.navigate_url
+                .as_mut()
+                .unwrap()
+                .push_str("?directLandscape=1");
+        }
         opts.cover_landscape = Some(landscape);
         validate(&opts).unwrap();
         let backend: Arc<dyn crate::publish::recovery::RecoveryBackend> =

@@ -98,8 +98,9 @@ if (location.search.includes('collectionPrefix=1')) collectionItem.querySelector
 if (location.search.includes('collectionMissing=1')) collectionItem.querySelector('.options').replaceChildren();
 function openCover() { document.querySelector('.cover-set-wrap').hidden = false; document.getElementById('ratio-cover').value = ''; }
 document.querySelector('.vertical-cover-wrap .vertical-img-wrap').onclick = () => { window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'portrait'; openCover(); };
-document.querySelector('.horizon-cover-wrap .horizon-img-wrap').onclick = () => { if (!window.firstCoverClickAt) window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'landscape'; document.querySelector('.ant-popover').hidden = false; };
+document.querySelector('.horizon-cover-wrap .horizon-img-wrap').onclick = () => { if (!window.firstCoverClickAt) window.firstCoverClickAt = Date.now(); if (document.querySelector('.vertical-mask-layer')) { window.earlyCoverClick++; return; } coverRatio = 'landscape'; if (location.search.includes('directLandscape=1')) openCover(); else document.querySelector('.ant-popover').hidden = false; };
 document.querySelector('.btn-directly-edit button').onclick = () => { document.querySelector('.ant-popover').hidden = true; if (!location.search.includes('landscapeFail=1')) openCover(); };
+if (location.search.includes('directLandscape=1')) document.querySelector('.btn-directly-edit button').remove();
 document.getElementById('ratio-cover').onchange = function () { window.coverUploads[coverRatio] = this.files[0].name; };
 document.getElementById('cover-confirm').onclick = () => { document.querySelector('.cover-set-wrap').hidden = true; };
 if (location.search.includes('noLandscape=1')) document.querySelector('.horizon-cover-wrap').remove();

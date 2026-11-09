@@ -359,9 +359,41 @@ impl<'a> PublishPage<'a> {
         self.wait_cover_ready(Some(scope)).await?;
         self.cover_click(scope, "编辑").await?;
         if landscape {
-            tokio::time::sleep(Duration::from_millis(300)).await;
-            self.cover_click(".ant-popover .btn-directly-edit button", "直接编辑")
-                .await?;
+            // Some accounts open the sharing-card editor directly. Only click the
+            // legacy intermediate action when it actually appears.
+            let js = format!(
+                r#"(function(){{
+              {ROOTS}
+              const visible = el => {{ const r=el.getBoundingClientRect(), s=getComputedStyle(el); return r.width>0 && r.height>0 && s.display!=='none' && s.visibility!=='hidden'; }};
+              for (const root of __roots) for (const el of root.querySelectorAll('.cover-set-wrap')) {{
+                if (visible(el)) return 'editor';
+              }}
+              for (const root of __roots) for (const el of root.querySelectorAll('.ant-popover .btn-directly-edit button')) {{
+                if (visible(el) && (el.innerText||'').trim()==='直接编辑') return 'choice';
+              }}
+              return '';
+            }})()"#
+            );
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+            loop {
+                match self.wujie.run_js(&js, Stage::Cover).await?.as_deref() {
+                    Some("editor") => break,
+                    Some("choice") => {
+                        self.cover_click(".ant-popover .btn-directly-edit button", "直接编辑")
+                            .await?;
+                        break;
+                    }
+                    _ => {}
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(AppError::new(
+                        Code::SchemaChanged,
+                        Stage::Cover,
+                        "未找到横版封面编辑器或直接编辑入口",
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
         }
         self.wait_cover_visible(true).await?;
         self.wujie
