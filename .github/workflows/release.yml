@@ -20,10 +20,10 @@ jobs:
             os: macos-latest
             pkg: zip
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             pkg: tar
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             pkg: tar
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -32,7 +32,7 @@ jobs:
             os: windows-latest
             pkg: zip
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -90,7 +90,7 @@ jobs:
             7z a -tzip "release/${{ steps.name.outputs.artifact }}.zip" "sph-${{ matrix.target }}${ext}" >/dev/null
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.name.outputs.artifact }}
           path: release/*
@@ -99,9 +99,9 @@ jobs:
   # 插件版本跟随 tag：marketplace 拉的是 main，tag 指向的 commit 里 plugin.json
   # 仍是旧版本，所以在 release 时把新版本回写 main，已装用户才能收到更新提示。
   sync-plugin-version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
       - name: inject tag version into plugin.json
@@ -119,13 +119,13 @@ jobs:
 
   publish:
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # --generate-notes 需要 git 上下文（对比上一个 tag），必须 checkout 且带完整历史
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: release
           merge-multiple: true
